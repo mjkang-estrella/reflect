@@ -9,11 +9,34 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
+    var body: some View {
+        TabView {
+            HomeView()
+                .tabItem {
+                    Label("Home", systemImage: "house")
+                }
+            HistoryView()
+                .tabItem {
+                    Label("History", systemImage: "clock")
+                }
+            InsightsView()
+                .tabItem {
+                    Label("Insights", systemImage: "chart.bar")
+                }
+            ProfileView()
+                .tabItem {
+                    Label("Profile", systemImage: "person")
+                }
+        }
+    }
+}
+
+struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var items: [Item]
 
     var body: some View {
-        NavigationSplitView {
+        NavigationStack {
             List {
                 ForEach(items) { item in
                     NavigationLink {
@@ -24,23 +47,17 @@ struct ContentView: View {
                 }
                 .onDelete(perform: deleteItems)
             }
-#if os(macOS)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-#endif
+            .navigationTitle("Home")
             .toolbar {
-#if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     EditButton()
                 }
-#endif
                 ToolbarItem {
                     Button(action: addItem) {
                         Label("Add Item", systemImage: "plus")
                     }
                 }
             }
-        } detail: {
-            Text("Select an item")
         }
     }
 
@@ -56,6 +73,36 @@ struct ContentView: View {
             for index in offsets {
                 modelContext.delete(items[index])
             }
+        }
+    }
+}
+
+struct HistoryView: View {
+    var body: some View {
+        NavigationStack {
+            Text("History")
+                .font(.title2)
+                .navigationTitle("History")
+        }
+    }
+}
+
+struct InsightsView: View {
+    var body: some View {
+        NavigationStack {
+            Text("Insights")
+                .font(.title2)
+                .navigationTitle("Insights")
+        }
+    }
+}
+
+struct ProfileView: View {
+    var body: some View {
+        NavigationStack {
+            Text("Profile")
+                .font(.title2)
+                .navigationTitle("Profile")
         }
     }
 }
