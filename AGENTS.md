@@ -44,6 +44,7 @@ xcodebuild -scheme reflect -destination 'platform=iOS Simulator,name=iPhone 15' 
 - Show a plan before large edits.
 - Capture exit codes and logs.
 - Run impacted checks only: lint → changed files; typecheck → touched modules; test → nearest tests (expand only if upstream fails).
+- Always run a build before finishing work and fix build failures. If the environment prevents a build, document the blocker and the smallest fix.
 - Stop on failure; summarize root cause; propose the smallest fix.
 - If no automated checks apply, say so and describe manual validation.
 - After each incremental change, run the quickest verifying command from this file.
