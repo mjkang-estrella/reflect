@@ -10,32 +10,41 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var selectedTab: AppTab = .home
+    @State private var isRecordingPresented = false
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            HomeView(onSeeAll: { selectedTab = .history })
+        Group {
+            TabView(selection: $selectedTab) {
+                HomeView(
+                    onSeeAll: { selectedTab = .history },
+                    onRecord: { isRecordingPresented = true }
+                )
                 .tabItem {
                     Label("Home", systemImage: "house")
                 }
                 .tag(AppTab.home)
 
-            HistoryView()
-                .tabItem {
-                    Label("History", systemImage: "clock")
-                }
-                .tag(AppTab.history)
+                HistoryView()
+                    .tabItem {
+                        Label("History", systemImage: "clock")
+                    }
+                    .tag(AppTab.history)
 
-            InsightsView()
-                .tabItem {
-                    Label("Insights", systemImage: "chart.bar")
-                }
-                .tag(AppTab.insights)
+                InsightsView()
+                    .tabItem {
+                        Label("Insights", systemImage: "chart.bar")
+                    }
+                    .tag(AppTab.insights)
 
-            ProfileView()
-                .tabItem {
-                    Label("Profile", systemImage: "person")
-                }
-                .tag(AppTab.profile)
+                ProfileView()
+                    .tabItem {
+                        Label("Profile", systemImage: "person")
+                    }
+                    .tag(AppTab.profile)
+            }
+        }
+        .fullScreenCover(isPresented: $isRecordingPresented) {
+            RecordingModeView(isPresented: $isRecordingPresented)
         }
     }
 }
@@ -56,6 +65,7 @@ struct HomeView: View {
     private let recentLimit = 6
 
     let onSeeAll: () -> Void
+    let onRecord: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -90,8 +100,14 @@ struct HomeView: View {
                     LimitReachedSheet(limit: freeEntryLimit, entryCount: viewModel.entryCount)
                 case .textEntry:
                     TextEntrySheetView()
+<<<<<<< ours
+=======
+<<<<<<< ours
                 case .recording:
-                    RecordingPlaceholderView()
+                    RecordingView()
+=======
+>>>>>>> theirs
+>>>>>>> theirs
                 }
             }
             .refreshable {
@@ -304,7 +320,7 @@ struct HomeView: View {
             activeSheet = .limit
             return
         }
-        activeSheet = .recording
+        onRecord()
     }
 
     private func handleWriteTap() {
@@ -390,7 +406,6 @@ struct HomeView: View {
 enum HomeSheet: Identifiable {
     case limit
     case textEntry
-    case recording
 
     var id: Int {
         switch self {
@@ -398,8 +413,6 @@ enum HomeSheet: Identifiable {
             return 1
         case .textEntry:
             return 2
-        case .recording:
-            return 3
         }
     }
 }
@@ -659,31 +672,6 @@ struct TextEntrySheetView: View {
             }
             .padding(24)
             .navigationTitle("New Text Entry")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-}
-
-struct RecordingPlaceholderView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                Text("Recording")
-                    .font(.title2)
-                Text("Placeholder screen")
-                    .foregroundColor(.secondary)
-            }
-            .padding(24)
-            .navigationTitle("Recording")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

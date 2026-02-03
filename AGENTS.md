@@ -7,10 +7,10 @@
 
 ## Build, Test, and Development Commands
 ```sh
-xcodebuild -scheme reflect -destination 'platform=iOS Simulator,name=iPhone 15' build
+xcodebuild -scheme reflect -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
 ```sh
-xcodebuild -scheme reflect -destination 'platform=iOS Simulator,name=iPhone 15' test
+xcodebuild -scheme reflect -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
 ## Coding Style & Naming Conventions
