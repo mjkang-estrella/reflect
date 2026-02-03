@@ -50,6 +50,7 @@ enum AppTab: Hashable {
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     @State private var activeSheet: HomeSheet?
+    @State private var selectedWeekOffset = 0
 
     private let freeEntryLimit = 30
     private let recentLimit = 6
@@ -130,10 +131,23 @@ struct HomeView: View {
     }
 
     private var weekdayStrip: some View {
-        HStack(spacing: 0) {
-            ForEach(weekDates, id: \.self) { date in
-                let isToday = calendar.isDateInToday(date)
-                let hasEntry = entryDays.contains(calendar.startOfDay(for: date))
+        TabView(selection: $selectedWeekOffset) {
+            ForEach(weekOffsets, id: \.self) { offset in
+                weekRow(for: offset)
+                    .tag(offset)
+                    .padding(.vertical, 2)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: 56)
+    }
+
+    private func weekRow(for offset: Int) -> some View {
+        let dates = weekDates(for: offset)
+        return HStack(spacing: 0) {
+            ForEach(dates, id: \.self) { date in
+                let isToday = weekCalendar.isDateInToday(date)
+                let hasEntry = entryDays.contains(weekCalendar.startOfDay(for: date))
 
                 VStack(spacing: 6) {
                     Text(date.formatted(.dateTime.weekday(.abbreviated)))
@@ -326,11 +340,11 @@ struct HomeView: View {
         let days = entryDays
         guard !days.isEmpty else { return 0 }
         var streak = 0
-        var currentDay = calendar.startOfDay(for: Date())
+        var currentDay = weekCalendar.startOfDay(for: Date())
 
         while days.contains(currentDay) {
             streak += 1
-            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDay) else {
+            guard let previousDay = weekCalendar.date(byAdding: .day, value: -1, to: currentDay) else {
                 break
             }
             currentDay = previousDay
@@ -340,22 +354,35 @@ struct HomeView: View {
     }
 
     private var entryDays: Set<Date> {
-        Set(viewModel.entries.map { calendar.startOfDay(for: $0.createdAt) })
+        Set(viewModel.entries.map { weekCalendar.startOfDay(for: $0.createdAt) })
     }
 
-    private var weekDates: [Date] {
-        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: Date()) else {
-            return []
-        }
+    private var weekOffsets: [Int] {
+        Array(-6...6)
+    }
 
-        return (0..<7).compactMap { offset in
-            calendar.date(byAdding: .day, value: offset, to: weekInterval.start)
+    private func weekDates(for offset: Int) -> [Date] {
+        let anchorDate = weekCalendar.date(byAdding: .weekOfYear, value: offset, to: Date()) ?? Date()
+        let startOfWeek = startOfWeek(for: anchorDate)
+        return (0..<7).compactMap { dayOffset in
+            weekCalendar.date(byAdding: .day, value: dayOffset, to: startOfWeek)
         }
     }
 
-    private var calendar: Calendar {
-        var calendar = Calendar.current
-        calendar.firstWeekday = 2
+    private func startOfWeek(for date: Date) -> Date {
+        let components = weekCalendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
+        var startComponents = DateComponents()
+        startComponents.yearForWeekOfYear = components.yearForWeekOfYear
+        startComponents.weekOfYear = components.weekOfYear
+        startComponents.weekday = 2 // Monday
+        let start = weekCalendar.date(from: startComponents) ?? date
+        return weekCalendar.startOfDay(for: start)
+    }
+
+    private var weekCalendar: Calendar {
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = .current
         return calendar
     }
 }
