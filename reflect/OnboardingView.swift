@@ -9,6 +9,7 @@ struct OnboardingView: View {
     @AppStorage("onboardingTone") private var toneValue = Tone.balanced.rawValue
     @AppStorage("onboardingProactivity") private var proactivityValue = Proactivity.medium.rawValue
     @AppStorage("onboardingAvoidTopics") private var avoidTopics = ""
+    @State private var saveError: String?
 
     var body: some View {
         NavigationStack {
@@ -62,6 +63,19 @@ struct OnboardingView: View {
                 .padding(.bottom, 40)
             }
             .toolbar(.hidden, for: .navigationBar)
+        }
+        .alert(
+            "Profile Save Failed",
+            isPresented: Binding(
+                get: { saveError != nil },
+                set: { if !$0 { saveError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                saveError = nil
+            }
+        } message: {
+            Text(saveError ?? "Unable to save profile.")
         }
     }
 
@@ -159,7 +173,28 @@ struct OnboardingView: View {
         case .welcome:
             step = .preferences
         case .preferences:
+            Task {
+                await persistProfile()
+            }
             onComplete()
+        }
+    }
+
+    private func persistProfile() async {
+        guard let userUUID = UUID(uuidString: userId) else { return }
+
+        let profile = ProfileSettings(
+            displayName: displayName,
+            tone: Tone(rawValue: toneValue) ?? .balanced,
+            proactivity: Proactivity(rawValue: proactivityValue) ?? .medium,
+            avoidTopics: avoidTopics
+        )
+
+        do {
+            let repository = try ProfileRepository()
+            try await repository.saveProfile(userId: userUUID, profile: profile)
+        } catch {
+            saveError = error.localizedDescription
         }
     }
 }
@@ -192,44 +227,6 @@ private enum OnboardingStep {
             return "Get Started"
         case .preferences:
             return "Finish"
-        }
-    }
-}
-
-private enum Tone: String, CaseIterable, Identifiable {
-    case gentle
-    case balanced
-    case direct
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .gentle:
-            return "Gentle"
-        case .balanced:
-            return "Balanced"
-        case .direct:
-            return "Direct"
-        }
-    }
-}
-
-private enum Proactivity: String, CaseIterable, Identifiable {
-    case low
-    case medium
-    case high
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .low:
-            return "Low"
-        case .medium:
-            return "Medium"
-        case .high:
-            return "High"
         }
     }
 }

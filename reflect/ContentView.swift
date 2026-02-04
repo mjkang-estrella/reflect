@@ -17,7 +17,8 @@ struct ContentView: View {
             TabView(selection: $selectedTab) {
                 HomeView(
                     onSeeAll: { selectedTab = .history },
-                    onRecord: { isRecordingPresented = true }
+                    onRecord: { isRecordingPresented = true },
+                    onProfile: { selectedTab = .profile }
                 )
                 .tabItem {
                     Label("Home", systemImage: "house")
@@ -68,6 +69,7 @@ struct HomeView: View {
 
     let onSeeAll: () -> Void
     let onRecord: () -> Void
+    let onProfile: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -111,29 +113,32 @@ struct HomeView: View {
     }
 
     private var headerSection: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(Color.white.opacity(0.15))
-                    .frame(width: 48, height: 48)
+        Button(action: handleProfileTap) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.15))
+                        .frame(width: 48, height: 48)
 
-                Image(systemName: "person.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.9))
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.9))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(greetingText),")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.6))
+
+                    Text(welcomeText)
+                        .font(.system(size: 20, weight: .regular, design: .serif))
+                        .foregroundColor(.white)
+                }
+
+                Spacer()
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(greetingText),")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.6))
-
-                Text(welcomeText)
-                    .font(.system(size: 20, weight: .regular, design: .serif))
-                    .foregroundColor(.white)
-            }
-
-            Spacer()
         }
+        .buttonStyle(.plain)
     }
 
     private var weekdayStrip: some View {
@@ -322,6 +327,11 @@ struct HomeView: View {
         activeSheet = .textEntry
     }
 
+    private func handleProfileTap() {
+        HapticManager.shared.selection()
+        onProfile()
+    }
+
     private var canCreateEntry: Bool {
         viewModel.entryCount < freeEntryLimit
     }
@@ -344,8 +354,8 @@ struct HomeView: View {
 
     private var welcomeText: String {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Welcome back" }
-        return "Welcome back, \(trimmed)"
+        guard !trimmed.isEmpty else { return "Welcome Back" }
+        return trimmed
     }
 
     private var currentStreakCount: Int {
@@ -973,7 +983,6 @@ struct InsightsView: View {
 struct ProfileView: View {
     @AppStorage("selectedGradientTheme") private var selectedTheme = AppGradientTheme.dusk.rawValue
     @EnvironmentObject private var authStore: AuthStore
-    @State private var showProfileAlert = false
     @State private var signOutError: String?
     @State private var isSigningOut = false
 
@@ -1023,8 +1032,8 @@ struct ProfileView: View {
                         }
 
                         VStack(spacing: 12) {
-                            Button {
-                                showProfileAlert = true
+                            NavigationLink {
+                                ProfileEditorView()
                             } label: {
                                 profileActionRow(
                                     title: "Edit Profile",
@@ -1052,11 +1061,6 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("Profile")
-        }
-        .alert("Profile", isPresented: $showProfileAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Profile settings are coming soon.")
         }
         .alert(
             "Sign Out Failed",
