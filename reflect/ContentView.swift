@@ -462,6 +462,47 @@ final class HomeViewModel: ObservableObject {
     }
 }
 
+final class HistoryViewModel: ObservableObject {
+    @Published var entries: [JournalEntry] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+
+    @MainActor
+    func loadEntries(userId: String?) async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        guard
+            let userId,
+            let userUUID = UUID(uuidString: userId)
+        else {
+            errorMessage = "Sign in to see your entries."
+            return
+        }
+
+        do {
+            let repository = try JournalRepository()
+            let sessions = try await repository.fetchSessions(userId: userUUID)
+            entries = sessions.map { session in
+                JournalEntry(
+                    id: session.id,
+                    createdAt: session.startedAt,
+                    title: session.title ?? "",
+                    transcription: session.finalText ?? "",
+                    duration: TimeInterval(session.durationSeconds ?? 0),
+                    tags: session.tags ?? [],
+                    mood: Mood(rawValue: session.mood ?? ""),
+                    isFavorite: session.isFavorite
+                )
+            }
+            errorMessage = nil
+        } catch {
+            errorMessage = "Unable to load entries: \(error.localizedDescription)"
+        }
+    }
+}
+
 struct JournalEntry: Identifiable, Hashable {
     let id: UUID
     var createdAt: Date
@@ -569,6 +610,18 @@ enum Mood: String, CaseIterable {
 
 struct RecentEntryCardView: View {
     let entry: JournalEntry
+    let width: CGFloat?
+    let height: CGFloat
+
+    init(
+        entry: JournalEntry,
+        width: CGFloat? = 180,
+        height: CGFloat = 187
+    ) {
+        self.entry = entry
+        self.width = width
+        self.height = height
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -601,7 +654,13 @@ struct RecentEntryCardView: View {
             }
         }
         .padding(16)
-        .frame(width: 180, height: 187, alignment: .leading)
+        .frame(
+            maxWidth: width == nil ? .infinity : nil,
+            minHeight: height,
+            maxHeight: height,
+            alignment: .leading
+        )
+        .frame(width: width, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(0.9))
@@ -727,17 +786,172 @@ struct LimitReachedSheet: View {
 }
 
 struct HistoryView: View {
+    @EnvironmentObject private var authStore: AuthStore
+    @StateObject private var viewModel = HistoryViewModel()
+    @State private var isDatePickerPresented = false
+    @State private var selectedDate: Date?
+    @State private var pickerDate = Date()
+
     var body: some View {
         NavigationStack {
             ZStack {
                 AppGradientBackground()
 
-                Text("History")
-                    .font(.title2)
-                    .foregroundColor(.white)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let filterLabel = filterLabel {
+                            HStack {
+                                Text(filterLabel)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.8))
+
+                                Spacer()
+
+                                Button("Clear") {
+                                    selectedDate = nil
+                                }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.8))
+                            }
+                            .padding(.horizontal, 4)
+                        }
+
+                        contentSection
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
+                    .padding(.bottom, 32)
+                }
+                .refreshable {
+                    await viewModel.loadEntries(userId: authStore.userId)
+                }
             }
-            .navigationTitle("History")
+            .navigationTitle("My Journal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("My Journal")
+                        .font(.system(size: 24, weight: .regular, design: .serif))
+                        .foregroundColor(.white)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        pickerDate = selectedDate ?? Date()
+                        isDatePickerPresented = true
+                    } label: {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .accessibilityLabel("Select date")
+                    .popover(isPresented: $isDatePickerPresented, arrowEdge: .top) {
+                        datePickerPopover
+                            .presentationCompactAdaptation(
+                                horizontal: .popover,
+                                vertical: .popover
+                            )
+                    }
+                }
+            }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .journalEntriesDidChange)) { _ in
+            Task {
+                await viewModel.loadEntries(userId: authStore.userId)
+            }
+        }
+        .task {
+            await viewModel.loadEntries(userId: authStore.userId)
+        }
+    }
+
+    private var contentSection: some View {
+        Group {
+            if viewModel.isLoading {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+            } else if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.7))
+                    .padding(.vertical, 8)
+            } else if filteredEntries.isEmpty {
+                Text(emptyStateText)
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.7))
+                    .padding(.vertical, 8)
+            } else {
+                LazyVGrid(columns: gridColumns, spacing: 16) {
+                    ForEach(filteredEntries) { entry in
+                        NavigationLink {
+                            JournalEntryDetailView(entry: entry)
+                        } label: {
+                            RecentEntryCardView(entry: entry, width: nil)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private var datePickerPopover: some View {
+        VStack(spacing: 12) {
+            DatePicker(
+                "Select date",
+                selection: $pickerDate,
+                displayedComponents: [.date]
+            )
+            .datePickerStyle(.graphical)
+            .tint(.accentColor)
+
+            Text("Choose a day to filter your journals.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+
+            HStack {
+                Button("Clear") {
+                    selectedDate = nil
+                    isDatePickerPresented = false
+                }
+
+                Spacer()
+
+                Button("Done") {
+                    selectedDate = pickerDate
+                    isDatePickerPresented = false
+                }
+                .fontWeight(.semibold)
+            }
+        }
+        .padding(16)
+        .frame(width: 320)
+    }
+
+    private var filteredEntries: [JournalEntry] {
+        guard let selectedDate else { return viewModel.entries }
+        let calendar = Calendar.current
+        return viewModel.entries.filter { calendar.isDate($0.createdAt, inSameDayAs: selectedDate) }
+    }
+
+    private var emptyStateText: String {
+        if selectedDate != nil {
+            return "No entries for that day."
+        }
+        return "No entries yet. Start with a quick note on the Home tab."
+    }
+
+    private var filterLabel: String? {
+        guard let selectedDate else { return nil }
+        return "Showing \(selectedDate.formatted(.dateTime.month().day().year()))"
+    }
+
+    private var gridColumns: [GridItem] {
+        [
+            GridItem(.flexible(), spacing: 16),
+            GridItem(.flexible(), spacing: 16),
+        ]
     }
 }
 

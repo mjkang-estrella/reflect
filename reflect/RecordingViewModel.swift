@@ -7,6 +7,8 @@ import SwiftUI
 final class RecordingViewModel: ObservableObject {
     @Published private(set) var state: RecordingState = .idle
     @Published private(set) var transcriptText: String = ""
+    @Published private(set) var committedLines: [String] = []
+    @Published private(set) var currentLine: String = ""
     @Published var showError = false
     @Published var errorMessage = ""
     @Published private(set) var isSaving = false
@@ -19,7 +21,7 @@ final class RecordingViewModel: ObservableObject {
     private var accumulatedDuration: TimeInterval = 0
 
     init(provider: TranscriptionProvider? = nil) {
-        self.provider = provider ?? OnDeviceSpeechTranscriptionProvider()
+        self.provider = provider ?? OpenAITranscriptionProvider()
         self.provider.onPartial = { [weak self] text in
             Task { @MainActor in
                 self?.handlePartial(text)
@@ -68,6 +70,8 @@ final class RecordingViewModel: ObservableObject {
     func stopAndReset() {
         provider.cancel()
         transcriptText = ""
+        committedLines = []
+        currentLine = ""
         state = .idle
         sessionStartedAt = nil
         activeRecordingStart = nil
@@ -75,12 +79,16 @@ final class RecordingViewModel: ObservableObject {
     }
 
     private func requestPermissionsIfNeeded() async -> Bool {
-        if hasSpeechPermission && hasMicPermission {
+        if (!provider.requiresSpeechAuthorization || hasSpeechPermission) && hasMicPermission {
             return true
         }
 
-        let speechStatus = await requestSpeechAuthorization()
-        hasSpeechPermission = speechStatus == .authorized
+        if provider.requiresSpeechAuthorization {
+            let speechStatus = await requestSpeechAuthorization()
+            hasSpeechPermission = speechStatus == .authorized
+        } else {
+            hasSpeechPermission = true
+        }
 
         let micAllowed = await requestMicrophoneAuthorization()
         hasMicPermission = micAllowed
@@ -110,17 +118,38 @@ final class RecordingViewModel: ObservableObject {
     }
 
     private func handlePartial(_ text: String) {
-        updateTranscript(with: text)
+        updateTranscript(with: text, finalizeCurrentLine: false)
     }
 
     private func handleFinal(_ text: String) {
-        updateTranscript(with: text)
+        withAnimation(.easeInOut(duration: 0.25)) {
+            updateTranscript(with: text, finalizeCurrentLine: true)
+        }
     }
 
-    private func updateTranscript(with text: String) {
+    private func updateTranscript(with text: String, finalizeCurrentLine: Bool) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         transcriptText = trimmed
+
+        let lines = trimmed
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if finalizeCurrentLine {
+            committedLines = lines
+            currentLine = ""
+            return
+        }
+
+        if lines.count <= 1 {
+            committedLines = []
+            currentLine = lines.first ?? ""
+        } else {
+            committedLines = Array(lines.dropLast())
+            currentLine = lines.last ?? ""
+        }
     }
 
     private func handleError(_ error: Error) {

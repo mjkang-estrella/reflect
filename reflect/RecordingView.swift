@@ -95,6 +95,7 @@ struct RecordingView: View {
                             )
                             .foregroundColor(Color(hex: line.textColor))
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
 
                     Color.clear
@@ -106,10 +107,10 @@ struct RecordingView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onAppear {
-                scrollTranscriptToBottom(proxy)
+                scrollTranscriptToBottom(proxy, animated: false)
             }
             .onChange(of: viewModel.transcriptText) { _ in
-                scrollTranscriptToBottom(proxy)
+                scrollTranscriptToBottom(proxy, animated: viewModel.currentLine.isEmpty)
             }
         }
         .frame(height: 414)
@@ -238,9 +239,15 @@ struct RecordingView: View {
         }
     }
 
-    private func scrollTranscriptToBottom(_ proxy: ScrollViewProxy) {
+    private func scrollTranscriptToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
         DispatchQueue.main.async {
-            proxy.scrollTo(transcriptBottomID, anchor: .bottom)
+            if animated {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(transcriptBottomID, anchor: .bottom)
+                }
+            } else {
+                proxy.scrollTo(transcriptBottomID, anchor: .bottom)
+            }
         }
     }
 
@@ -253,22 +260,34 @@ struct RecordingView: View {
     }
 
     private var transcriptionLines: [RecordingLine] {
-        let trimmed = viewModel.transcriptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            if viewModel.state == .idle {
-                return transcription.lines
-            }
-            return [RecordingLine(text: "Listening...", textColor: 0x90A1B9)]
+        let committed = viewModel.committedLines
+        let current = viewModel.currentLine.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if viewModel.state == .idle && committed.isEmpty && current.isEmpty {
+            return transcription.lines
         }
 
-        let rawLines = trimmed.split(whereSeparator: \.isNewline).map(String.init)
-        let lines = rawLines.isEmpty ? [trimmed] : rawLines
-
-        return lines.enumerated().map { index, text in
-            let isEmphasized = index == lines.count - 1
-            let color = isEmphasized ? 0x0F172B : 0x45556C
-            return RecordingLine(text: text, textColor: color, isEmphasized: isEmphasized)
+        var lines = committed.enumerated().map { index, text in
+            RecordingLine(id: "committed-\(index)", text: text, textColor: 0x45556C)
         }
+
+        if !current.isEmpty {
+            lines.append(
+                RecordingLine(
+                    id: "current",
+                    text: current,
+                    textColor: 0x0F172B,
+                    isEmphasized: true
+                )
+            )
+            return lines
+        }
+
+        if lines.isEmpty {
+            return [RecordingLine(id: "placeholder", text: "Listening...", textColor: 0x90A1B9)]
+        }
+
+        return lines
     }
 }
 
@@ -287,10 +306,17 @@ private struct RecordingTranscription {
 }
 
 private struct RecordingLine: Identifiable {
-    let id = UUID()
+    let id: String
     let text: String
     let textColor: Int
     var isEmphasized: Bool = false
+
+    init(id: String = UUID().uuidString, text: String, textColor: Int, isEmphasized: Bool = false) {
+        self.id = id
+        self.text = text
+        self.textColor = textColor
+        self.isEmphasized = isEmphasized
+    }
 }
 
 private struct FollowUpSuggestion {

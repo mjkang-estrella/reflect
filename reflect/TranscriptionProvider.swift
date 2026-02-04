@@ -3,6 +3,7 @@ import Foundation
 import Speech
 
 protocol TranscriptionProvider: AnyObject {
+    var requiresSpeechAuthorization: Bool { get }
     var onPartial: ((String) -> Void)? { get set }
     var onFinal: ((String) -> Void)? { get set }
     var onError: ((Error) -> Void)? { get set }
@@ -27,6 +28,7 @@ enum TranscriptionProviderError: LocalizedError {
 }
 
 final class OnDeviceSpeechTranscriptionProvider: NSObject, TranscriptionProvider {
+    let requiresSpeechAuthorization = true
     var onPartial: ((String) -> Void)?
     var onFinal: ((String) -> Void)?
     var onError: ((Error) -> Void)?
