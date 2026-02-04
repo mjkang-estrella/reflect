@@ -156,6 +156,11 @@ Keep schema simple and evolve later. Suggested tables:
 - status (draft | completed)
 - mode (text | voice)
 - title (nullable; derived later)
+- final_text (text, nullable)
+- duration_seconds (integer, nullable)
+- tags (text[], optional)
+- mood (text, nullable)
+- is_favorite (boolean)
 
 ### `journal_entries`
 - id (uuid)

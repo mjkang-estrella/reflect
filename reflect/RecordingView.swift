@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RecordingView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var authStore: AuthStore
 
     let backgroundOpacity: Double
     let onDismiss: (() -> Void)?
@@ -186,7 +187,14 @@ struct RecordingView: View {
             )
 
             if viewModel.state == .paused {
-                RecordingConfirmButton(action: saveRecording)
+                if viewModel.isSaving {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .frame(width: 56, height: 56)
+                } else {
+                    RecordingConfirmButton(action: saveRecording)
+                }
             } else {
                 Color.clear
                     .frame(width: 56, height: 56)
@@ -222,8 +230,22 @@ struct RecordingView: View {
     }
 
     private func saveRecording() {
-        viewModel.stopAndReset()
-        performDismiss()
+        guard !viewModel.isSaving else { return }
+        guard let userId = authStore.userId, let userUUID = UUID(uuidString: userId) else {
+            viewModel.presentError("Sign in to save this recording.")
+            return
+        }
+
+        Task {
+            let saved = await viewModel.saveRecording(
+                userId: userUUID,
+                followUpPrompt: followUp.prompt
+            )
+            if saved {
+                viewModel.stopAndReset()
+                performDismiss()
+            }
+        }
     }
 
     private func scrollTranscriptToBottom(_ proxy: ScrollViewProxy) {
@@ -242,7 +264,12 @@ struct RecordingView: View {
 
     private var transcriptionLines: [RecordingLine] {
         let trimmed = viewModel.transcriptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return transcription.lines }
+        guard !trimmed.isEmpty else {
+            if viewModel.state == .idle {
+                return transcription.lines
+            }
+            return [RecordingLine(text: "Listening...", textColor: 0x90A1B9)]
+        }
 
         let rawLines = trimmed.split(whereSeparator: \.isNewline).map(String.init)
         let lines = rawLines.isEmpty ? [trimmed] : rawLines

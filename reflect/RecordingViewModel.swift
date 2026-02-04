@@ -9,10 +9,14 @@ final class RecordingViewModel: ObservableObject {
     @Published private(set) var transcriptText: String = ""
     @Published var showError = false
     @Published var errorMessage = ""
+    @Published private(set) var isSaving = false
 
     private let provider: TranscriptionProvider
     private var hasSpeechPermission = false
     private var hasMicPermission = false
+    private var sessionStartedAt: Date?
+    private var activeRecordingStart: Date?
+    private var accumulatedDuration: TimeInterval = 0
 
     init(provider: TranscriptionProvider? = nil) {
         self.provider = provider ?? OnDeviceSpeechTranscriptionProvider()
@@ -40,6 +44,10 @@ final class RecordingViewModel: ObservableObject {
 
             do {
                 try provider.start()
+                if sessionStartedAt == nil {
+                    sessionStartedAt = Date()
+                }
+                activeRecordingStart = Date()
                 state = .recording
             } catch {
                 handleError(error)
@@ -49,6 +57,7 @@ final class RecordingViewModel: ObservableObject {
 
     func pauseRecording() {
         provider.stop()
+        accumulateDuration()
         state = .paused
     }
 
@@ -60,6 +69,9 @@ final class RecordingViewModel: ObservableObject {
         provider.cancel()
         transcriptText = ""
         state = .idle
+        sessionStartedAt = nil
+        activeRecordingStart = nil
+        accumulatedDuration = 0
     }
 
     private func requestPermissionsIfNeeded() async -> Bool {
@@ -114,6 +126,52 @@ final class RecordingViewModel: ObservableObject {
     private func handleError(_ error: Error) {
         errorMessage = error.localizedDescription
         showError = true
+    }
+
+    func presentError(_ message: String) {
+        errorMessage = message
+        showError = true
+    }
+
+    func saveRecording(userId: UUID, followUpPrompt: String?) async -> Bool {
+        let trimmed = transcriptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            presentError("Record something before saving.")
+            return false
+        }
+
+        guard !isSaving else { return false }
+        isSaving = true
+        defer { isSaving = false }
+
+        let endedAt = Date()
+        accumulateDuration()
+        let durationSeconds = Int(accumulatedDuration.rounded())
+        let startedAt = sessionStartedAt ?? endedAt
+
+        do {
+            let repository = try JournalRepository()
+            try await repository.createVoiceSession(
+                userId: userId,
+                transcript: trimmed,
+                durationSeconds: durationSeconds == 0 ? nil : durationSeconds,
+                followUpPrompt: followUpPrompt,
+                startedAt: startedAt,
+                endedAt: endedAt
+            )
+            NotificationCenter.default.post(name: .journalEntriesDidChange, object: nil)
+            return true
+        } catch {
+            presentError(error.localizedDescription)
+            return false
+        }
+    }
+
+    private func accumulateDuration() {
+        if let activeRecordingStart {
+            accumulatedDuration += Date().timeIntervalSince(activeRecordingStart)
+        }
+        activeRecordingStart = nil
     }
 }
 

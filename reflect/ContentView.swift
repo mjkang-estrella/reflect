@@ -57,9 +57,11 @@ enum AppTab: Hashable {
 }
 
 struct HomeView: View {
+    @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel = HomeViewModel()
     @State private var activeSheet: HomeSheet?
     @State private var selectedWeekOffset = 0
+    @AppStorage("onboardingDisplayName") private var displayName = ""
 
     private let freeEntryLimit = 30
     private let recentLimit = 6
@@ -92,24 +94,29 @@ struct HomeView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 24)
                 }
-            }
-            .toolbar(.hidden, for: .navigationBar)
-            .sheet(item: $activeSheet) { sheet in
-                switch sheet {
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
                 case .limit:
                     LimitReachedSheet(limit: freeEntryLimit, entryCount: viewModel.entryCount)
                 case .textEntry:
                     TextEntrySheetView()
                 }
             }
-            .refreshable {
-                await viewModel.loadEntries()
-            }
-            .task {
-                await viewModel.loadEntries()
-            }
-            .animation(.easeInOut(duration: 0.2), value: viewModel.entries.count)
+        .refreshable {
+            await viewModel.loadEntries(userId: authStore.userId)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .journalEntriesDidChange)) { _ in
+            Task {
+                await viewModel.loadEntries(userId: authStore.userId)
+            }
+        }
+        .task {
+            await viewModel.loadEntries(userId: authStore.userId)
+        }
+        .animation(.easeInOut(duration: 0.2), value: viewModel.entries.count)
+    }
     }
 
     private var headerSection: some View {
@@ -129,7 +136,7 @@ struct HomeView: View {
                     .font(.system(size: 14))
                     .foregroundColor(.white.opacity(0.6))
 
-                Text("Welcome back")
+                Text(welcomeText)
                     .font(.system(size: 20, weight: .regular, design: .serif))
                     .foregroundColor(.white)
             }
@@ -344,6 +351,12 @@ struct HomeView: View {
         }
     }
 
+    private var welcomeText: String {
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Welcome back" }
+        return "Welcome back, \(trimmed)"
+    }
+
     private var currentStreakCount: Int {
         let days = entryDays
         guard !days.isEmpty else { return 0 }
@@ -419,13 +432,37 @@ final class HomeViewModel: ObservableObject {
     }
 
     @MainActor
-    func loadEntries() async {
+    func loadEntries(userId: String?) async {
         guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
 
-        if entries.isEmpty {
-            entries = JournalEntry.sampleEntries
+        guard
+            let userId,
+            let userUUID = UUID(uuidString: userId)
+        else {
+            errorMessage = "Sign in to see your entries."
+            return
+        }
+
+        do {
+            let repository = try JournalRepository()
+            let sessions = try await repository.fetchSessions(userId: userUUID)
+            entries = sessions.map { session in
+                JournalEntry(
+                    id: session.id,
+                    createdAt: session.startedAt,
+                    title: session.title ?? "",
+                    transcription: session.finalText ?? "",
+                    duration: TimeInterval(session.durationSeconds ?? 0),
+                    tags: session.tags ?? [],
+                    mood: Mood(rawValue: session.mood ?? ""),
+                    isFavorite: session.isFavorite
+                )
+            }
+            errorMessage = nil
+        } catch {
+            errorMessage = "Unable to load entries: \(error.localizedDescription)"
         }
     }
 
