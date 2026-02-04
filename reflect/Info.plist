@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>We use the microphone to record your journal.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>We use speech recognition to transcribe your journal.</string>
+	<key>SUPABASE_ANON_KEY</key>
+	<string>sb_publishable_J3CynZZ0HbBbPRPnPvpoBA_As1GL8EU</string>
+	<key>SUPABASE_URL</key>
+	<string>https://ciyytfubwsekktnajucy.supabase.co</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

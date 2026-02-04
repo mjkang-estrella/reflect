@@ -8,23 +8,6 @@ script = ""
 [[actions]]
 name = "Run"
 icon = "run"
-<<<<<<< ours
-=======
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-=======
-command = "xcodebuild -scheme reflect -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build"
-
-[[actions]]
-name = "RUN"
-icon = "tool"
->>>>>>> theirs
-=======
->>>>>>> theirs
-=======
->>>>>>> theirs
->>>>>>> theirs
 command = '''
 xcodebuild -scheme reflect -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 xcrun simctl boot "iPhone 17 Pro"

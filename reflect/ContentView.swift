@@ -100,14 +100,6 @@ struct HomeView: View {
                     LimitReachedSheet(limit: freeEntryLimit, entryCount: viewModel.entryCount)
                 case .textEntry:
                     TextEntrySheetView()
-<<<<<<< ours
-=======
-<<<<<<< ours
-                case .recording:
-                    RecordingView()
-=======
->>>>>>> theirs
->>>>>>> theirs
                 }
             }
             .refreshable {

@@ -3,18 +3,12 @@ import SwiftUI
 struct RecordingView: View {
     @Environment(\.dismiss) private var dismiss
 
-<<<<<<< ours
-=======
-<<<<<<< ours
-    @State private var recordingState: RecordingState = .recording
-    @State private var transcription = RecordingTranscription.sample
-    @State private var followUp = FollowUpSuggestion.sample
-=======
->>>>>>> theirs
     let backgroundOpacity: Double
     let onDismiss: (() -> Void)?
 
-    @State private var recordingState: RecordingState = .recording
+    private let transcriptBottomID = "transcript-bottom"
+
+    @StateObject private var viewModel = RecordingViewModel()
     @State private var transcription = RecordingTranscription.sample
     @State private var followUp = FollowUpSuggestion.sample
     @State private var showExitConfirmation = false
@@ -23,10 +17,6 @@ struct RecordingView: View {
         self.backgroundOpacity = backgroundOpacity
         self.onDismiss = onDismiss
     }
-<<<<<<< ours
-=======
->>>>>>> theirs
->>>>>>> theirs
 
     var body: some View {
         NavigationStack {
@@ -54,24 +44,23 @@ struct RecordingView: View {
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
-<<<<<<< ours
-=======
-<<<<<<< ours
-=======
->>>>>>> theirs
             .alert("Discard recording?", isPresented: $showExitConfirmation) {
                 Button("Keep Recording", role: .cancel) {}
                 Button("Discard", role: .destructive) {
-                    recordingState = .idle
+                    viewModel.stopAndReset()
                     performDismiss()
                 }
             } message: {
                 Text("Your recording will be lost.")
             }
-<<<<<<< ours
-=======
->>>>>>> theirs
->>>>>>> theirs
+            .alert("Recording Error", isPresented: $viewModel.showError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.errorMessage)
+            }
+            .onDisappear {
+                viewModel.stopAndReset()
+            }
         }
     }
 
@@ -85,14 +74,7 @@ struct RecordingView: View {
             startPoint: .top,
             endPoint: .bottom
         )
-<<<<<<< ours
         .opacity(backgroundOpacity)
-=======
-<<<<<<< ours
-=======
-        .opacity(backgroundOpacity)
->>>>>>> theirs
->>>>>>> theirs
         .ignoresSafeArea()
     }
 
@@ -102,7 +84,7 @@ struct RecordingView: View {
                 .fill(Color(hex: 0xFB2C36).opacity(0.52))
                 .frame(width: 8, height: 8)
 
-            Text(recordingState.statusText)
+            Text(viewModel.state.statusText)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(Color.white.opacity(0.8))
 
@@ -111,21 +93,33 @@ struct RecordingView: View {
     }
 
     private var transcriptionCard: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(transcription.lines) { line in
-                    Text(line.text)
-                        .font(line.isEmphasized
-                            ? .system(size: 24, weight: .regular, design: .serif)
-                            : .system(size: 20, weight: .regular, design: .serif)
-                        )
-                        .foregroundColor(Color(hex: line.textColor))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(transcriptionLines) { line in
+                        Text(line.text)
+                            .font(line.isEmphasized
+                                ? .system(size: 24, weight: .regular, design: .serif)
+                                : .system(size: 20, weight: .regular, design: .serif)
+                            )
+                            .foregroundColor(Color(hex: line.textColor))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(transcriptBottomID)
                 }
+                .padding(.horizontal, 32)
+                .padding(.vertical, 28)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 32)
-            .padding(.vertical, 28)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .onAppear {
+                scrollTranscriptToBottom(proxy)
+            }
+            .onChange(of: viewModel.transcriptText) { _ in
+                scrollTranscriptToBottom(proxy)
+            }
         }
         .frame(height: 414)
         .scrollIndicators(.hidden)
@@ -179,45 +173,6 @@ struct RecordingView: View {
     }
 
     private var controlsSection: some View {
-<<<<<<< ours
-=======
-<<<<<<< ours
-        VStack(spacing: 20) {
-            if recordingState == .finished {
-                Button(action: saveRecording) {
-                    Text("Save as Journal")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(Color(hex: 0x0F1115))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Color.white)
-                                .shadow(color: Color.black.opacity(0.15), radius: 12, y: 6)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-
-            HStack(spacing: 32) {
-                RecordingControlButton(
-                    systemName: "xmark",
-                    isHighlighted: false,
-                    action: cancelRecording
-                )
-
-                RecordingPrimaryButton(
-                    state: recordingState,
-                    action: togglePrimaryAction
-                )
-
-                RecordingControlButton(
-                    systemName: recordingState == .paused ? "play.fill" : "pause.fill",
-                    isHighlighted: recordingState == .paused,
-                    action: togglePause
-                )
-=======
->>>>>>> theirs
         HStack(spacing: 32) {
             RecordingControlButton(
                 systemName: "xmark",
@@ -226,77 +181,37 @@ struct RecordingView: View {
             )
 
             RecordingPrimaryButton(
-                state: recordingState,
+                state: viewModel.state,
                 action: togglePrimaryAction
             )
 
-            if recordingState == .paused {
+            if viewModel.state == .paused {
                 RecordingConfirmButton(action: saveRecording)
             } else {
                 Color.clear
                     .frame(width: 56, height: 56)
-<<<<<<< ours
-=======
->>>>>>> theirs
->>>>>>> theirs
             }
         }
     }
 
     private func togglePrimaryAction() {
-        switch recordingState {
+        switch viewModel.state {
         case .idle:
-            recordingState = .recording
+            viewModel.startRecording()
         case .recording:
-<<<<<<< ours
-            recordingState = .paused
+            viewModel.pauseRecording()
         case .paused:
-            recordingState = .recording
-=======
-<<<<<<< ours
-            recordingState = .finished
-        case .paused:
-            recordingState = .recording
-        case .finished:
-            recordingState = .idle
-        }
-    }
-
-    private func togglePause() {
-        switch recordingState {
-        case .recording:
-            recordingState = .paused
-        case .paused:
-            recordingState = .recording
-        default:
-            break
-=======
-            recordingState = .paused
-        case .paused:
-            recordingState = .recording
->>>>>>> theirs
->>>>>>> theirs
+            viewModel.resumeRecording()
         }
     }
 
     private func cancelRecording() {
-<<<<<<< ours
-=======
-<<<<<<< ours
-        recordingState = .idle
-        dismiss()
-=======
->>>>>>> theirs
-        if recordingState.isActive {
+        if viewModel.state.isActive {
             showExitConfirmation = true
             return
         }
-        recordingState = .idle
+        viewModel.stopAndReset()
         performDismiss()
-<<<<<<< ours
-=======
->>>>>>> theirs
->>>>>>> theirs
     }
 
     private func regenerateFollowUp() {
@@ -307,14 +222,14 @@ struct RecordingView: View {
     }
 
     private func saveRecording() {
-        recordingState = .idle
-<<<<<<< ours
-=======
-<<<<<<< ours
-        dismiss()
-=======
->>>>>>> theirs
+        viewModel.stopAndReset()
         performDismiss()
+    }
+
+    private func scrollTranscriptToBottom(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            proxy.scrollTo(transcriptBottomID, anchor: .bottom)
+        }
     }
 
     private func performDismiss() {
@@ -323,53 +238,19 @@ struct RecordingView: View {
         } else {
             dismiss()
         }
-<<<<<<< ours
-=======
->>>>>>> theirs
->>>>>>> theirs
     }
-}
 
-private enum RecordingState {
-    case idle
-    case recording
-    case paused
-<<<<<<< ours
-=======
-<<<<<<< ours
-    case finished
-=======
->>>>>>> theirs
+    private var transcriptionLines: [RecordingLine] {
+        let trimmed = viewModel.transcriptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return transcription.lines }
 
-    var isActive: Bool {
-        switch self {
-        case .recording, .paused:
-            return true
-        case .idle:
-            return false
-        }
-    }
-<<<<<<< ours
-=======
->>>>>>> theirs
->>>>>>> theirs
+        let rawLines = trimmed.split(whereSeparator: \.isNewline).map(String.init)
+        let lines = rawLines.isEmpty ? [trimmed] : rawLines
 
-    var statusText: String {
-        switch self {
-        case .idle:
-            return "Ready to record"
-        case .recording:
-            return "Recording voice..."
-        case .paused:
-            return "Recording paused"
-<<<<<<< ours
-=======
-<<<<<<< ours
-        case .finished:
-            return "Recording complete"
-=======
->>>>>>> theirs
->>>>>>> theirs
+        return lines.enumerated().map { index, text in
+            let isEmphasized = index == lines.count - 1
+            let color = isEmphasized ? 0x0F172B : 0x45556C
+            return RecordingLine(text: text, textColor: color, isEmphasized: isEmphasized)
         }
     }
 }
@@ -378,25 +259,10 @@ private struct RecordingTranscription {
     let lines: [RecordingLine]
 
     static let sample = RecordingTranscription(lines: [
-        RecordingLine(text: "Okay...", textColor: 0x90A1B9),
+        RecordingLine(text: "Speak about your day.", textColor: 0x90A1B9),
+        RecordingLine(text: "Start with whatever feels real.", textColor: 0x62748E),
         RecordingLine(
-            text: "I've been thinking about this design a lot today.",
-            textColor: 0x62748E
-        ),
-        RecordingLine(
-            text: "I keep coming back to the feeling that it's... too clean. Like it looks right, but it doesn't feel right yet.",
-            textColor: 0x62748E
-        ),
-        RecordingLine(
-            text: "Um... maybe it's because everything is solved too early. There's no tension.",
-            textColor: 0x62748E
-        ),
-        RecordingLine(
-            text: "I think good design needs a bit of resistance. Not friction in usability, but... emotional friction.",
-            textColor: 0x45556C
-        ),
-        RecordingLine(
-            text: "Like, something that makes you pause for half a second.",
+            text: "I'm listening.",
             textColor: 0x0F172B,
             isEmphasized: true
         ),
@@ -461,32 +327,13 @@ private struct RecordingPrimaryButton: View {
                 Circle()
                     .fill(Color.white)
                     .frame(width: 28, height: 28)
-<<<<<<< ours
                     .opacity(state == .idle || state == .paused ? 1 : 0)
-=======
-<<<<<<< ours
-                    .opacity(state == .idle ? 1 : 0)
-
-                Image(systemName: "play.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(.white)
-                    .offset(x: 2)
-                    .opacity(state == .paused ? 1 : 0)
-=======
-                    .opacity(state == .idle || state == .paused ? 1 : 0)
->>>>>>> theirs
->>>>>>> theirs
             }
         }
         .buttonStyle(.plain)
     }
 }
 
-<<<<<<< ours
-=======
-<<<<<<< ours
-=======
->>>>>>> theirs
 private struct RecordingConfirmButton: View {
     let action: () -> Void
 
@@ -506,10 +353,6 @@ private struct RecordingConfirmButton: View {
     }
 }
 
-<<<<<<< ours
-=======
->>>>>>> theirs
->>>>>>> theirs
 private extension Color {
     init(hex: Int) {
         self.init(

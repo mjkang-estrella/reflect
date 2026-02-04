@@ -1,0 +1,239 @@
+import SwiftUI
+
+struct OnboardingView: View {
+    let userId: String
+    let onComplete: () -> Void
+
+    @State private var step: OnboardingStep = .welcome
+    @AppStorage("onboardingDisplayName") private var displayName = ""
+    @AppStorage("onboardingTone") private var toneValue = Tone.balanced.rawValue
+    @AppStorage("onboardingProactivity") private var proactivityValue = Proactivity.medium.rawValue
+    @AppStorage("onboardingAvoidTopics") private var avoidTopics = ""
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.1, green: 0.12, blue: 0.2),
+                        Color(red: 0.2, green: 0.22, blue: 0.36),
+                        Color(red: 0.88, green: 0.7, blue: 0.6),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+
+                VStack(spacing: 24) {
+                    VStack(spacing: 6) {
+                        Text(step.title)
+                            .font(.system(size: 28, weight: .semibold, design: .serif))
+                            .foregroundColor(.white)
+
+                        Text(step.subtitle)
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.7))
+                            .multilineTextAlignment(.center)
+                    }
+
+                    if step == .welcome {
+                        welcomeCard
+                    } else {
+                        preferencesCard
+                    }
+
+                    HStack(spacing: 12) {
+                        if step == .preferences {
+                            Button("Back") {
+                                step = .welcome
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(.white.opacity(0.7))
+                        }
+
+                        Button(step.primaryActionTitle) {
+                            handlePrimaryAction()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.white)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 40)
+            }
+            .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+
+    private var welcomeCard: some View {
+        VStack(spacing: 16) {
+            Text("Let’s personalize your journaling tone and boundaries in two quick steps.")
+                .font(.body)
+                .foregroundColor(.white.opacity(0.9))
+                .multilineTextAlignment(.center)
+
+            Text("You can change these anytime in Profile.")
+                .font(.footnote)
+                .foregroundColor(.white.opacity(0.7))
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    private var preferencesCard: some View {
+        VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Display name")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+
+                TextField("Your name", text: $displayName)
+                    .textInputAutocapitalization(.words)
+                    .padding(12)
+                    .background(Color.white.opacity(0.9))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Tone")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+
+                Picker("Tone", selection: $toneValue) {
+                    ForEach(Tone.allCases) { tone in
+                        Text(tone.title)
+                            .tag(tone.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Proactivity")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+
+                Picker("Proactivity", selection: $proactivityValue) {
+                    ForEach(Proactivity.allCases) { level in
+                        Text(level.title)
+                            .tag(level.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Topics to avoid")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+
+                TextField("Optional — e.g. work, health", text: $avoidTopics, axis: .vertical)
+                    .lineLimit(3, reservesSpace: true)
+                    .padding(12)
+                    .background(Color.white.opacity(0.9))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    private func handlePrimaryAction() {
+        switch step {
+        case .welcome:
+            step = .preferences
+        case .preferences:
+            onComplete()
+        }
+    }
+}
+
+private enum OnboardingStep {
+    case welcome
+    case preferences
+
+    var title: String {
+        switch self {
+        case .welcome:
+            return "Welcome"
+        case .preferences:
+            return "Your Boundaries"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .welcome:
+            return "A calmer, clearer journaling experience."
+        case .preferences:
+            return "Set the tone and limits for your AI nudges."
+        }
+    }
+
+    var primaryActionTitle: String {
+        switch self {
+        case .welcome:
+            return "Get Started"
+        case .preferences:
+            return "Finish"
+        }
+    }
+}
+
+private enum Tone: String, CaseIterable, Identifiable {
+    case gentle
+    case balanced
+    case direct
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .gentle:
+            return "Gentle"
+        case .balanced:
+            return "Balanced"
+        case .direct:
+            return "Direct"
+        }
+    }
+}
+
+private enum Proactivity: String, CaseIterable, Identifiable {
+    case low
+    case medium
+    case high
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .low:
+            return "Low"
+        case .medium:
+            return "Medium"
+        case .high:
+            return "High"
+        }
+    }
+}
+
+#Preview {
+    OnboardingView(userId: "preview") {}
+}
