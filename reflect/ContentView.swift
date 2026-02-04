@@ -72,16 +72,7 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.12, green: 0.14, blue: 0.26),
-                        Color(red: 0.23, green: 0.23, blue: 0.41),
-                        Color(red: 0.91, green: 0.65, blue: 0.62),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+                AppGradientBackground()
 
                 ScrollView {
                     VStack(spacing: 32) {
@@ -738,9 +729,14 @@ struct LimitReachedSheet: View {
 struct HistoryView: View {
     var body: some View {
         NavigationStack {
-            Text("History")
-                .font(.title2)
-                .navigationTitle("History")
+            ZStack {
+                AppGradientBackground()
+
+                Text("History")
+                    .font(.title2)
+                    .foregroundColor(.white)
+            }
+            .navigationTitle("History")
         }
     }
 }
@@ -748,20 +744,161 @@ struct HistoryView: View {
 struct InsightsView: View {
     var body: some View {
         NavigationStack {
-            Text("Insights")
-                .font(.title2)
-                .navigationTitle("Insights")
+            ZStack {
+                AppGradientBackground()
+
+                Text("Insights")
+                    .font(.title2)
+                    .foregroundColor(.white)
+            }
+            .navigationTitle("Insights")
         }
     }
 }
 
 struct ProfileView: View {
+    @AppStorage("selectedGradientTheme") private var selectedTheme = AppGradientTheme.dusk.rawValue
+    @EnvironmentObject private var authStore: AuthStore
+    @State private var showProfileAlert = false
+    @State private var signOutError: String?
+    @State private var isSigningOut = false
+
     var body: some View {
         NavigationStack {
-            Text("Profile")
-                .font(.title2)
-                .navigationTitle("Profile")
+            ZStack {
+                AppGradientBackground()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text("Appearance")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+
+                        Text("Select your gradient mood.")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.7))
+
+                        let columns = [
+                            GridItem(.flexible(), spacing: 16),
+                            GridItem(.flexible(), spacing: 16),
+                        ]
+
+                        LazyVGrid(columns: columns, spacing: 16) {
+                            ForEach(AppGradientTheme.allCases) { theme in
+                                Button {
+                                    selectedTheme = theme.rawValue
+                                } label: {
+                                    GradientOptionCard(
+                                        theme: theme,
+                                        isSelected: selectedTheme == theme.rawValue
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        Text("Account")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.top, 8)
+
+                        if let email = authStore.userEmail {
+                            Text(email)
+                                .font(.system(size: 14))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+
+                        VStack(spacing: 12) {
+                            Button {
+                                showProfileAlert = true
+                            } label: {
+                                profileActionRow(
+                                    title: "Edit Profile",
+                                    systemImage: "person.crop.circle"
+                                )
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                signOut()
+                            } label: {
+                                profileActionRow(
+                                    title: isSigningOut ? "Signing Out..." : "Sign Out",
+                                    systemImage: "rectangle.portrait.and.arrow.right",
+                                    isDestructive: true
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isSigningOut)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 24)
+                    .padding(.bottom, 40)
+                }
+            }
+            .navigationTitle("Profile")
         }
+        .alert("Profile", isPresented: $showProfileAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Profile settings are coming soon.")
+        }
+        .alert(
+            "Sign Out Failed",
+            isPresented: Binding(
+                get: { signOutError != nil },
+                set: { if !$0 { signOutError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                signOutError = nil
+            }
+        } message: {
+            Text(signOutError ?? "Unable to sign out.")
+        }
+    }
+
+    private func signOut() {
+        guard !isSigningOut else { return }
+        isSigningOut = true
+
+        Task { @MainActor in
+            do {
+                try await authStore.signOut()
+            } catch {
+                signOutError = error.localizedDescription
+            }
+            isSigningOut = false
+        }
+    }
+
+    private func profileActionRow(
+        title: String,
+        systemImage: String,
+        isDestructive: Bool = false
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(isDestructive ? .red.opacity(0.9) : .white)
+
+            Text(title)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(isDestructive ? .red.opacity(0.9) : .white)
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+        )
     }
 }
 

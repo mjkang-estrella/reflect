@@ -66,17 +66,7 @@ struct RecordingView: View {
     }
 
     private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [
-                Color(hex: 0x1E2343),
-                Color(hex: 0x3B3A68),
-                Color(hex: 0xE8A69E),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .opacity(backgroundOpacity)
-        .ignoresSafeArea()
+        AppGradientBackground(opacity: backgroundOpacity)
     }
 
     private var headerStatus: some View {
@@ -377,16 +367,6 @@ private struct RecordingConfirmButton: View {
                 )
         }
         .buttonStyle(.plain)
-    }
-}
-
-private extension Color {
-    init(hex: Int) {
-        self.init(
-            red: Double((hex >> 16) & 0xFF) / 255.0,
-            green: Double((hex >> 8) & 0xFF) / 255.0,
-            blue: Double(hex & 0xFF) / 255.0
-        )
     }
 }
 
