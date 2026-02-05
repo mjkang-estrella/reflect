@@ -37,16 +37,19 @@ struct OnboardingView: View {
                             .multilineTextAlignment(.center)
                     }
 
-                    if step == .welcome {
+                    switch step {
+                    case .welcome:
                         welcomeCard
-                    } else {
+                    case .tone:
+                        toneCard
+                    case .preferences:
                         preferencesCard
                     }
 
                     HStack(spacing: 12) {
-                        if step == .preferences {
+                        if step != .welcome {
                             Button("Back") {
-                                step = .welcome
+                                handleBackAction()
                             }
                             .buttonStyle(.bordered)
                             .tint(.white.opacity(0.7))
@@ -81,7 +84,7 @@ struct OnboardingView: View {
 
     private var welcomeCard: some View {
         VStack(spacing: 16) {
-            Text("Let’s personalize your journaling tone and boundaries in two quick steps.")
+            Text("Let’s personalize your journaling tone and boundaries in three quick steps.")
                 .font(.body)
                 .foregroundColor(.white.opacity(0.9))
                 .multilineTextAlignment(.center)
@@ -114,20 +117,6 @@ struct OnboardingView: View {
                     .padding(12)
                     .background(Color.white.opacity(0.9))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Tone")
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.7))
-
-                Picker("Tone", selection: $toneValue) {
-                    ForEach(Tone.allCases) { tone in
-                        Text(tone.title)
-                            .tag(tone.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -168,15 +157,56 @@ struct OnboardingView: View {
         )
     }
 
+    private var toneCard: some View {
+        VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Tone")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+
+                Picker("Tone", selection: $toneValue) {
+                    ForEach(Tone.allCases) { tone in
+                        Text(tone.title)
+                            .tag(tone.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
     private func handlePrimaryAction() {
         switch step {
         case .welcome:
+            step = .tone
+        case .tone:
             step = .preferences
         case .preferences:
             Task {
                 await persistProfile()
             }
             onComplete()
+        }
+    }
+
+    private func handleBackAction() {
+        switch step {
+        case .welcome:
+            return
+        case .tone:
+            step = .welcome
+        case .preferences:
+            step = .tone
         }
     }
 
@@ -201,12 +231,15 @@ struct OnboardingView: View {
 
 private enum OnboardingStep {
     case welcome
+    case tone
     case preferences
 
     var title: String {
         switch self {
         case .welcome:
             return "Welcome"
+        case .tone:
+            return "Your Tone"
         case .preferences:
             return "Your Boundaries"
         }
@@ -216,8 +249,10 @@ private enum OnboardingStep {
         switch self {
         case .welcome:
             return "A calmer, clearer journaling experience."
+        case .tone:
+            return "Choose how your AI nudges should sound."
         case .preferences:
-            return "Set the tone and limits for your AI nudges."
+            return "Set your limits for AI nudges."
         }
     }
 
@@ -225,6 +260,8 @@ private enum OnboardingStep {
         switch self {
         case .welcome:
             return "Get Started"
+        case .tone:
+            return "Next"
         case .preferences:
             return "Finish"
         }
