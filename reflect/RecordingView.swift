@@ -11,7 +11,6 @@ struct RecordingView: View {
 
     @StateObject private var viewModel = RecordingViewModel()
     @State private var transcription = RecordingTranscription.sample
-    @State private var followUp = FollowUpSuggestion.sample
     @State private var showExitConfirmation = false
 
     init(backgroundOpacity: Double = 1.0, onDismiss: (() -> Void)? = nil) {
@@ -135,25 +134,19 @@ struct RecordingView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(followUp.label)
+                Text("AI FOLLOW-UP")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(Color(hex: 0x6E11B0))
                     .tracking(0.6)
 
-                Text(followUp.prompt)
+                Text(followUpPrompt)
                     .font(.system(size: 14, weight: .regular, design: .serif))
                     .foregroundColor(Color(hex: 0x1D293D))
             }
 
             Spacer()
 
-            Button(action: regenerateFollowUp) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Color(hex: 0x6B7280))
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
+            followUpStatusControl
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 20)
@@ -196,7 +189,11 @@ struct RecordingView: View {
     private func togglePrimaryAction() {
         switch viewModel.state {
         case .idle:
-            viewModel.startRecording()
+            if let userId = authStore.userId, let userUUID = UUID(uuidString: userId) {
+                viewModel.startRecording(userId: userUUID)
+            } else {
+                viewModel.startRecording()
+            }
         case .recording:
             viewModel.pauseRecording()
         case .paused:
@@ -214,10 +211,7 @@ struct RecordingView: View {
     }
 
     private func regenerateFollowUp() {
-        followUp = FollowUpSuggestion(
-            label: "AI FOLLOW-UP",
-            prompt: "What would the boldest version of you try next?"
-        )
+        viewModel.refreshQuestion()
     }
 
     private func saveRecording() {
@@ -228,10 +222,7 @@ struct RecordingView: View {
         }
 
         Task {
-            let saved = await viewModel.saveRecording(
-                userId: userUUID,
-                followUpPrompt: followUp.prompt
-            )
+            let saved = await viewModel.saveRecording(userId: userUUID)
             if saved {
                 viewModel.stopAndReset()
                 performDismiss()
@@ -256,6 +247,34 @@ struct RecordingView: View {
             onDismiss()
         } else {
             dismiss()
+        }
+    }
+
+    private var followUpPrompt: String {
+        viewModel.currentQuestion?.text ?? FollowUpSuggestion.sample.prompt
+    }
+
+    @ViewBuilder
+    private var followUpStatusControl: some View {
+        let status = viewModel.currentQuestion?.status
+        if status == .pendingValidation {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(Color(hex: 0x6E11B0))
+                .frame(width: 24, height: 24)
+        } else if status == .answered {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Color(hex: 0x22C55E))
+                .frame(width: 24, height: 24)
+        } else {
+            Button(action: regenerateFollowUp) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color(hex: 0x6B7280))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
         }
     }
 

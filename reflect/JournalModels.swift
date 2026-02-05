@@ -75,14 +75,18 @@ struct NewJournalEntry: Encodable {
 }
 
 struct NewSessionQuestion: Encodable {
+    let id: UUID
     let sessionId: UUID
+    let createdAt: Date?
     let question: String
     let coverageTag: String?
     let status: String
     let answeredText: String?
 
     enum CodingKeys: String, CodingKey {
+        case id
         case sessionId = "session_id"
+        case createdAt = "created_at"
         case question
         case coverageTag = "coverage_tag"
         case status
