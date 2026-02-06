@@ -10,17 +10,39 @@ struct QuestionService {
     }
 
     func validateAnswer(request: QuestionRequest) async throws -> QuestionResponse {
-        try await client.functions.invoke(
-            functionName,
-            options: FunctionInvokeOptions(body: request)
-        )
+        try await invokeWithAuth(request: request)
     }
 
     func requestNextQuestion(request: QuestionRequest) async throws -> QuestionResponse {
-        try await client.functions.invoke(
-            functionName,
-            options: FunctionInvokeOptions(body: request)
+        try await invokeWithAuth(request: request)
+    }
+
+    private func invokeWithAuth(request: QuestionRequest) async throws -> QuestionResponse {
+        do {
+            return try await invoke(request: request)
+        } catch let functionsError as FunctionsError {
+            guard isUnauthorized(functionsError) else {
+                throw functionsError
+            }
+
+            _ = try await client.auth.refreshSession()
+            return try await invoke(request: request)
+        }
+    }
+
+    private func invoke(request: QuestionRequest) async throws -> QuestionResponse {
+        let accessToken = try await client.auth.session.accessToken
+        let options = FunctionInvokeOptions(
+            headers: ["Authorization": "Bearer \(accessToken)"],
+            body: request
         )
+
+        return try await client.functions.invoke(functionName, options: options)
+    }
+
+    private func isUnauthorized(_ error: FunctionsError) -> Bool {
+        guard case let .httpError(code, _) = error else { return false }
+        return code == 401
     }
 }
 

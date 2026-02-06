@@ -256,7 +256,7 @@ struct RecordingView: View {
     }
 
     private var followUpPrompt: String {
-        viewModel.currentQuestion?.text ?? FollowUpSuggestion.sample.prompt
+        viewModel.currentQuestion?.text ?? QuestionDefaults.firstQuestionText
     }
 
     @ViewBuilder

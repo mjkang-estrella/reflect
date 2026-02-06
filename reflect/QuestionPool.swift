@@ -1,5 +1,10 @@
 import Foundation
 
+enum QuestionDefaults {
+    static let firstQuestionText = "How was your day"
+    static let firstQuestionCoverageTag = "event"
+}
+
 struct QuestionTemplate: Equatable {
     let text: String
     let coverageTag: String

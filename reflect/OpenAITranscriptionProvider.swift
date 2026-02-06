@@ -27,10 +27,19 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
     private var committedTranscript: String = ""
     private var currentSegmentTranscript: String = ""
     private var shouldStartNewSegment = false
+    private var sessionStartedAt: Date?
+    private var hasTrackedFirstPartial = false
 
-    init(client: SupabaseClient? = try? SupabaseClientProvider.makeClient()) {
+    init(
+        client: SupabaseClient? = try? SupabaseClientProvider.makeClient(),
+        functionNameOverride: String? = nil,
+        initialTranscript: String = ""
+    ) {
         self.supabase = client
-        self.functionName = TranscriptionRuntimeSettings.selectedBackend().functionName
+        self.functionName = functionNameOverride ?? TranscriptionRuntimeSettings.selectedBackend().functionName
+        let seeded = initialTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.lastTranscript = seeded
+        self.committedTranscript = seeded
         super.init()
     }
 
@@ -88,6 +97,12 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
             }
         }
 
+        sessionStartedAt = Date()
+        hasTrackedFirstPartial = false
+        TranscriptionTelemetry.track("transcription_session_started", fields: [
+            "transport": "polling",
+            "function": functionName,
+        ])
         startTranscriptionTimer(using: supabase)
     }
 
@@ -187,6 +202,7 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
                 )
                 let normalized = normalizeTranscript(response.text)
                 guard !normalized.isEmpty else { return }
+                self.trackFirstPartialIfNeeded()
                 self.currentSegmentTranscript = normalized
                 let combined = self.combineTranscript(committed: self.committedTranscript, current: normalized)
                 if combined != self.lastTranscript {
@@ -233,6 +249,7 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
             )
             let normalized = normalizeTranscript(response.text)
             guard !normalized.isEmpty else { return }
+            trackFirstPartialIfNeeded()
             currentSegmentTranscript = normalized
             let combined = combineTranscript(committed: committedTranscript, current: normalized)
             lastTranscript = combined
@@ -311,6 +328,16 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
         guard case let .httpError(code, responseData) = functionsError, code == 400 else { return false }
         let responseText = String(data: responseData, encoding: .utf8)?.lowercased() ?? ""
         return responseText.contains("audio file might be corrupted or unsupported") || responseText.contains("\"code\":\"invalid_value\"")
+    }
+
+    private func trackFirstPartialIfNeeded() {
+        guard !hasTrackedFirstPartial else { return }
+        hasTrackedFirstPartial = true
+        let elapsedMs = Int((Date().timeIntervalSince(sessionStartedAt ?? Date())) * 1000)
+        TranscriptionTelemetry.track("transcription_first_partial_ms", fields: [
+            "transport": "polling",
+            "value": "\(max(elapsedMs, 0))",
+        ])
     }
 }
 

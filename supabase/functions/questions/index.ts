@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 type QuestionKind = "default" | "follow_up" | "new_topic";
 
@@ -13,6 +14,13 @@ type ProfilePayload = {
   tone?: string;
   proactivity?: string;
   avoidTopics?: string[];
+};
+
+type ResolvedProfileContext = {
+  tone: "gentle" | "balanced" | "direct";
+  proactivity: "low" | "medium" | "high";
+  avoidTopics: string[];
+  memoryNotes: string[];
 };
 
 type RecentSession = {
@@ -46,6 +54,9 @@ type QuestionsResponse = {
 const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
 const openaiModel = Deno.env.get("OPENAI_QUESTION_MODEL") ?? "gpt-4o-mini";
 const openaiUrl = "https://api.openai.com/v1/responses";
+const MAX_MEMORY_NOTES = 8;
+const MAX_MEMORY_NOTE_CHARS = 220;
+const MAX_AVOID_TOPICS = 24;
 
 const fallbackQuestions = [
   { text: "What felt most important today?", coverageTag: "values", kind: "default" },
@@ -63,6 +74,29 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
+
+  const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
+  if (!authHeader) {
+    return jsonResponse({ error: "Missing Authorization header." }, 401);
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
+  if (!supabaseUrl || !supabaseKey) {
+    return jsonResponse({ error: "Supabase credentials are not set." }, 500);
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    global: {
+      headers: { Authorization: authHeader },
+    },
+  });
+
+  const { data: authUser, error: authError } = await supabase.auth.getUser();
+  if (authError || !authUser.user?.id) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+  const userId = authUser.user.id;
 
   if (!openaiApiKey) {
     return jsonResponse({ error: "OPENAI_API_KEY is not set." }, 500);
@@ -84,7 +118,14 @@ serve(async (req) => {
   }
 
   if (payload.mode === "next") {
-    return handleNext(payload);
+    let context: ResolvedProfileContext;
+    try {
+      context = await resolveProfileContext(supabase, userId, payload.profile ?? {});
+    } catch (error) {
+      console.error("Failed to resolve me_db context for questions", error);
+      context = fallbackProfileContext(payload.profile ?? {});
+    }
+    return handleNext(payload, context);
   }
 
   return jsonResponse({ error: "Unsupported mode." }, 400);
@@ -132,17 +173,21 @@ async function handleValidate(payload: QuestionsRequest): Promise<Response> {
   return jsonResponse(response);
 }
 
-async function handleNext(payload: QuestionsRequest): Promise<Response> {
+async function handleNext(payload: QuestionsRequest, context: ResolvedProfileContext): Promise<Response> {
   const preferredKind = payload.preferredKind ?? inferPreferredKind(payload.questionHistory ?? []);
-  const profile = payload.profile ?? {};
-  const avoidTopics = (profile.avoidTopics ?? []).filter(Boolean);
+  const avoidTopics = context.avoidTopics;
 
   const prompt = buildQuestionPrompt({
     preferredKind,
     draftText: payload.draftText,
     recentText: payload.recentText,
     lastQuestion: payload.lastQuestion ?? "",
-    profile,
+    profile: {
+      tone: context.tone,
+      proactivity: context.proactivity,
+      avoidTopics: context.avoidTopics,
+    },
+    memoryNotes: context.memoryNotes,
     recentSessions: payload.recentSessions ?? [],
   });
 
@@ -207,6 +252,7 @@ function buildQuestionPrompt(input: {
   recentText: string;
   lastQuestion: string;
   profile: ProfilePayload;
+  memoryNotes: string[];
   recentSessions: RecentSession[];
 }): string {
   const tone = input.profile.tone ?? "balanced";
@@ -234,11 +280,18 @@ function buildQuestionPrompt(input: {
       ? "Be more direct and specific while staying respectful."
       : "Be balanced and supportive.";
 
+  const memoryContext = input.memoryNotes
+    .slice(-MAX_MEMORY_NOTES)
+    .map((note) => `- ${truncate(note, MAX_MEMORY_NOTE_CHARS)}`)
+    .join("\n");
+
   return [
     "You help users reflect deeper with short, thoughtful questions.",
     "Output ONLY the question in English, under 15 words, ending with '?'",
+    "Use profile memory as soft context only. Prioritize the current transcript.",
     `Tone: ${tone}. ${proactivityGuidance}`,
     avoidTopics ? `Topics to avoid: ${avoidTopics}.` : "",
+    memoryContext ? `User memory notes:\n${memoryContext}` : "",
     kindGuidance,
     input.lastQuestion ? `Last question: ${input.lastQuestion}` : "",
     "Recent text:",
@@ -377,6 +430,95 @@ function clamp(value: number, min: number, max: number): number {
 function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength);
+}
+
+async function resolveProfileContext(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  requestProfile: ProfilePayload,
+): Promise<ResolvedProfileContext> {
+  const { data, error } = await supabase
+    .from("me_db")
+    .select("profile_json, state_json")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  const profileJson = asObject(data?.profile_json);
+  const stateJson = asObject(data?.state_json);
+
+  const tone = readTone(profileJson.tone) ?? readTone(requestProfile.tone) ?? "balanced";
+  const proactivity = readProactivity(profileJson.proactivity) ?? readProactivity(requestProfile.proactivity) ?? "medium";
+  const mergedTopics = dedupe([
+    ...readAvoidTopics(profileJson.avoidTopics),
+    ...sanitizeTopicList(requestProfile.avoidTopics),
+  ]).slice(0, MAX_AVOID_TOPICS);
+  const memoryNotes = readMemoryNotes(stateJson.memory_notes);
+
+  return {
+    tone,
+    proactivity,
+    avoidTopics: mergedTopics,
+    memoryNotes,
+  };
+}
+
+function fallbackProfileContext(requestProfile: ProfilePayload): ResolvedProfileContext {
+  return {
+    tone: readTone(requestProfile.tone) ?? "balanced",
+    proactivity: readProactivity(requestProfile.proactivity) ?? "medium",
+    avoidTopics: sanitizeTopicList(requestProfile.avoidTopics).slice(0, MAX_AVOID_TOPICS),
+    memoryNotes: [],
+  };
+}
+
+function readTone(value: unknown): "gentle" | "balanced" | "direct" | null {
+  if (value === "gentle" || value === "balanced" || value === "direct") return value;
+  return null;
+}
+
+function readProactivity(value: unknown): "low" | "medium" | "high" | null {
+  if (value === "low" || value === "medium" || value === "high") return value;
+  return null;
+}
+
+function readAvoidTopics(value: unknown): string[] {
+  if (typeof value === "string") {
+    return sanitizeTopicList(value.split(","));
+  }
+  return sanitizeTopicList(value);
+}
+
+function readMemoryNotes(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => typeof item === "string" ? item.trim().replace(/\s+/g, " ") : "")
+    .filter((item) => item.length > 0)
+    .slice(-MAX_MEMORY_NOTES)
+    .map((item) => truncate(item, MAX_MEMORY_NOTE_CHARS));
+}
+
+function sanitizeTopicList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const topics = value
+    .map((item) => typeof item === "string" ? item : "")
+    .map((item) => item.trim().toLowerCase().replace(/\s+/g, " "))
+    .filter((item) => item.length > 0 && item.split(" ").length <= 4);
+  return dedupe(topics);
+}
+
+function dedupe(items: string[]): string[] {
+  return [...new Set(items)];
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

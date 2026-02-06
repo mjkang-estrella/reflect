@@ -2,19 +2,22 @@ import SwiftUI
 
 enum AppGradientTheme: String, CaseIterable, Identifiable {
     case dusk
-    case nightfall
-    case rose
+    case morning
+    case afternoon
+    case evening
 
     var id: String { rawValue }
 
     var name: String {
         switch self {
         case .dusk:
-            return "Dusk"
-        case .nightfall:
-            return "Nightfall"
-        case .rose:
-            return "Rose"
+            return "Default"
+        case .morning:
+            return "Morning"
+        case .afternoon:
+            return "Afternoon"
+        case .evening:
+            return "Evening"
         }
     }
 
@@ -26,17 +29,23 @@ enum AppGradientTheme: String, CaseIterable, Identifiable {
                 Color(red: 0.23, green: 0.23, blue: 0.41),
                 Color(red: 0.91, green: 0.65, blue: 0.62),
             ]
-        case .nightfall:
+        case .morning:
             return [
-                Color(hex: 0x1E2343),
-                Color(hex: 0x3B3A68),
-                Color(hex: 0xE8A69E),
+                Color(hex: 0xFFEDD5),
+                Color(hex: 0xFCD34D),
+                Color(hex: 0xFDBA74),
             ]
-        case .rose:
+        case .afternoon:
             return [
-                Color(hex: 0x172233),
-                Color(hex: 0x2F3A5F),
-                Color(hex: 0xD9A3A7),
+                Color(hex: 0xBFDBFE),
+                Color(hex: 0x60A5FA),
+                Color(hex: 0x2563EB),
+            ]
+        case .evening:
+            return [
+                Color(hex: 0x312E81),
+                Color(hex: 0x7C3AED),
+                Color(hex: 0xF97316),
             ]
         }
     }

@@ -27,7 +27,9 @@ enum TranscriptionBackend: String, CaseIterable, Identifiable {
 
 enum TranscriptionRuntimeSettings {
     static let backendKey = "transcriptionBackend"
+    static let streamingEnabledKey = "transcriptionStreamingEnabled"
     static let defaultBackend: TranscriptionBackend = .openAI
+    static let defaultStreamingEnabled = false
 
     static func selectedBackend(from defaults: UserDefaults = .standard) -> TranscriptionBackend {
         guard
@@ -38,5 +40,13 @@ enum TranscriptionRuntimeSettings {
         }
 
         return backend
+    }
+
+    static func isStreamingEnabled(from defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: streamingEnabledKey) == nil {
+            return defaultStreamingEnabled
+        }
+
+        return defaults.bool(forKey: streamingEnabledKey)
     }
 }

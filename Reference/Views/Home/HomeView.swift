@@ -130,13 +130,13 @@ struct HomeView: View {
 
             HStack(spacing: 16) {
                 captureButton(
-                    title: "Record voice",
+                    title: "Record",
                     systemImage: "mic",
                     action: handleRecordTap
                 )
 
                 captureButton(
-                    title: "Write a text",
+                    title: "Chat",
                     systemImage: "pencil",
                     action: handleWriteTap
                 )

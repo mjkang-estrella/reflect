@@ -180,20 +180,20 @@ struct HomeView: View {
 
     private var captureCard: some View {
         VStack(spacing: 16) {
-            Text("How was your day?")
+            Text(QuestionDefaults.firstQuestionText)
                 .font(.system(size: 24, weight: .regular, design: .serif))
                 .foregroundColor(Color(red: 0.06, green: 0.08, blue: 0.16))
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 16) {
                 captureButton(
-                    title: "Record voice",
+                    title: "Record",
                     systemImage: "mic",
                     action: handleRecordTap
                 )
 
                 captureButton(
-                    title: "Write a text",
+                    title: "Chat",
                     systemImage: "pencil",
                     action: handleWriteTap
                 )
@@ -1007,6 +1007,7 @@ struct ProfileView: View {
     @AppStorage(JournalReminderConfiguration.hourKey) private var reminderHour = JournalReminderConfiguration.defaultHour
     @AppStorage(JournalReminderConfiguration.minuteKey) private var reminderMinute = JournalReminderConfiguration.defaultMinute
     @AppStorage(TranscriptionRuntimeSettings.backendKey) private var transcriptionBackendValue = TranscriptionRuntimeSettings.defaultBackend.rawValue
+    @AppStorage(TranscriptionRuntimeSettings.streamingEnabledKey) private var streamingEnabled = TranscriptionRuntimeSettings.defaultStreamingEnabled
     @EnvironmentObject private var authStore: AuthStore
     @State private var signOutError: String?
     @State private var isSigningOut = false
@@ -1015,6 +1016,9 @@ struct ProfileView: View {
         minute: JournalReminderConfiguration.defaultMinute
     )
     @State private var reminderErrorMessage: String?
+    @State private var meDbSnapshot: MeDbDebugSnapshot?
+    @State private var meDbError: String?
+    @State private var isLoadingMeDb = false
 
     var body: some View {
         NavigationStack {
@@ -1027,7 +1031,7 @@ struct ProfileView: View {
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(.white)
 
-                        Text("Select your gradient mood.")
+                        Text("Choose a default or time-of-day gradient.")
                             .font(.system(size: 14))
                             .foregroundColor(.white.opacity(0.7))
 
@@ -1127,6 +1131,24 @@ struct ProfileView: View {
                                 .font(.system(size: 13))
                                 .foregroundColor(.white.opacity(0.8))
 
+                            Toggle(
+                                "Use Streaming Transcription (Beta)",
+                                isOn: $streamingEnabled
+                            )
+                            .tint(.white)
+                            .foregroundColor(.white)
+                            .disabled(selectedTranscriptionBackend != .openAI)
+
+                            if selectedTranscriptionBackend != .openAI {
+                                Text("Streaming is currently available for OpenAI only.")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white.opacity(0.7))
+                            } else {
+                                Text("If streaming becomes unstable, the app falls back to standard transcription automatically.")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white.opacity(0.7))
+                            }
+
                             Text("Applies to the next recording session.")
                                 .font(.system(size: 12))
                                 .foregroundColor(.white.opacity(0.7))
@@ -1176,6 +1198,52 @@ struct ProfileView: View {
                             .buttonStyle(.plain)
                             .disabled(isSigningOut)
                         }
+
+                        Text("ME DB (Temporary Debug)")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.top, 8)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Button(isLoadingMeDb ? "Loading..." : "Load My ME DB") {
+                                Task { await loadMeDbSnapshot() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.white)
+                            .disabled(isLoadingMeDb)
+
+                            if let meDbError {
+                                Text(meDbError)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.white.opacity(0.8))
+                            }
+
+                            if let meDbSnapshot {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("User ID: \(meDbSnapshot.userId.uuidString)")
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundColor(.white.opacity(0.85))
+                                    Text("Updated At: \(meDbSnapshot.updatedAt)")
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundColor(.white.opacity(0.85))
+
+                                    jsonBlock(title: "profile_json", text: meDbSnapshot.profileJSON)
+                                    jsonBlock(title: "state_json", text: meDbSnapshot.stateJSON)
+                                    jsonBlock(title: "patterns_json", text: meDbSnapshot.patternsJSON)
+                                    jsonBlock(title: "trust_json", text: meDbSnapshot.trustJSON)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
                     }
                     .padding(.horizontal, 24)
                     .padding(.top, 24)
@@ -1235,6 +1303,30 @@ struct ProfileView: View {
         await JournalReminderManager.shared.setReminderTime(updatedDate)
     }
 
+    private func loadMeDbSnapshot() async {
+        meDbError = nil
+        guard let userId = authStore.userId, let userUUID = UUID(uuidString: userId) else {
+            meDbError = "Sign in to load ME DB."
+            meDbSnapshot = nil
+            return
+        }
+
+        guard !isLoadingMeDb else { return }
+        isLoadingMeDb = true
+        defer { isLoadingMeDb = false }
+
+        do {
+            let repository = try ProfileRepository()
+            meDbSnapshot = try await repository.fetchMeDbDebugSnapshot(userId: userUUID)
+            if meDbSnapshot == nil {
+                meDbError = "No me_db row found for this user."
+            }
+        } catch {
+            meDbSnapshot = nil
+            meDbError = error.localizedDescription
+        }
+    }
+
     private var selectedTranscriptionBackend: TranscriptionBackend {
         TranscriptionBackend(rawValue: transcriptionBackendValue) ?? TranscriptionRuntimeSettings.defaultBackend
     }
@@ -1265,6 +1357,28 @@ struct ProfileView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.2), lineWidth: 1)
         )
+    }
+
+    private func jsonBlock(title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.85))
+
+            ScrollView(.horizontal, showsIndicators: true) {
+                Text(text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.9))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            }
+            .frame(maxHeight: 160)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(0.2))
+            )
+        }
     }
 }
 

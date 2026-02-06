@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import Speech
+import Supabase
 import SwiftUI
 
 @MainActor
@@ -32,7 +33,7 @@ final class RecordingViewModel: ObservableObject {
     private var shouldDeleteDraftSession = false
 
     init(provider: TranscriptionProvider? = nil) {
-        self.provider = provider ?? OpenAITranscriptionProvider()
+        self.provider = provider ?? Self.makeDefaultTranscriptionProvider()
         if let supabase = try? SupabaseClientProvider.makeClient() {
             self.questionService = QuestionService(client: supabase)
         } else {
@@ -194,6 +195,11 @@ final class RecordingViewModel: ObservableObject {
     }
 
     private func handleError(_ error: Error) {
+        let transport = provider is OpenAIStreamingTranscriptionProvider ? "streaming" : "polling"
+        TranscriptionTelemetry.track("transcription_error", fields: [
+            "transport": transport,
+            "message": error.localizedDescription,
+        ])
         errorMessage = error.localizedDescription
         showError = true
     }
@@ -201,6 +207,15 @@ final class RecordingViewModel: ObservableObject {
     func presentError(_ message: String) {
         errorMessage = message
         showError = true
+    }
+
+    nonisolated private static func makeDefaultTranscriptionProvider() -> TranscriptionProvider {
+        let backend = TranscriptionRuntimeSettings.selectedBackend()
+        if backend == .openAI, TranscriptionRuntimeSettings.isStreamingEnabled() {
+            return OpenAIStreamingTranscriptionProvider()
+        }
+
+        return OpenAITranscriptionProvider()
     }
 
     func saveRecording(userId: UUID) async -> JournalEntry? {
@@ -390,7 +405,7 @@ final class RecordingViewModel: ObservableObject {
                 }
             } catch {
                 updateQuestionStatus(.shown)
-                self.handleError(error)
+                self.handleNonFatalQuestionError(error, context: "validate")
             }
         }
     }
@@ -420,7 +435,7 @@ final class RecordingViewModel: ObservableObject {
             } catch {
                 let fallback = fallbackQuestion(kind: preferredKind)
                 await applyNextQuestion(fallback)
-                self.handleError(error)
+                self.handleNonFatalQuestionError(error, context: "next")
                 return
             }
 
@@ -461,8 +476,21 @@ final class RecordingViewModel: ObservableObject {
             )
             try await repository.insertSessionQuestion(newQuestion)
         } catch {
-            handleError(error)
+            handleNonFatalQuestionError(error, context: "persist")
         }
+    }
+
+    private func handleNonFatalQuestionError(_ error: Error, context: String) {
+        var fields: [String: String] = [
+            "context": context,
+            "message": error.localizedDescription,
+        ]
+        if let functionsError = error as? FunctionsError,
+           case let .httpError(code, _) = functionsError
+        {
+            fields["status"] = "\(code)"
+        }
+        TranscriptionTelemetry.track("question_error_non_fatal", fields: fields)
     }
 
     private func fallbackQuestion(kind: QuestionKind) -> QuestionItem? {
@@ -585,12 +613,10 @@ final class RecordingViewModel: ObservableObject {
 
     private func showInitialQuestion() async {
         guard currentQuestion == nil else { return }
-        let avoidTopics = avoidTopicsList(from: profile.avoidTopics)
-        guard let template = QuestionPool.shared.randomQuestion(avoidTopics: avoidTopics) else { return }
         let question = QuestionItem(
             id: UUID(),
-            text: template.text,
-            coverageTag: template.coverageTag,
+            text: QuestionDefaults.firstQuestionText,
+            coverageTag: QuestionDefaults.firstQuestionCoverageTag,
             kind: .default,
             status: .shown,
             askedAt: Date()
