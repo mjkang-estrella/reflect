@@ -10,7 +10,7 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
     var recordingFileURL: URL? { recordingURL }
 
     private let supabase: SupabaseClient?
-    private let functionName = "transcribe"
+    private let functionName: String
     private let transcriptionInterval: TimeInterval = 2.2
     private let minimumAudioBytes = 2_000
     private let maxTranscriptionAudioBytes = 8 * 1024 * 1024
@@ -30,6 +30,7 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
 
     init(client: SupabaseClient? = try? SupabaseClientProvider.makeClient()) {
         self.supabase = client
+        self.functionName = TranscriptionRuntimeSettings.selectedBackend().functionName
         super.init()
     }
 

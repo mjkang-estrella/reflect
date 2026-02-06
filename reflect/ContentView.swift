@@ -1006,6 +1006,7 @@ struct ProfileView: View {
     @AppStorage(JournalReminderConfiguration.enabledKey) private var reminderEnabled = false
     @AppStorage(JournalReminderConfiguration.hourKey) private var reminderHour = JournalReminderConfiguration.defaultHour
     @AppStorage(JournalReminderConfiguration.minuteKey) private var reminderMinute = JournalReminderConfiguration.defaultMinute
+    @AppStorage(TranscriptionRuntimeSettings.backendKey) private var transcriptionBackendValue = TranscriptionRuntimeSettings.defaultBackend.rawValue
     @EnvironmentObject private var authStore: AuthStore
     @State private var signOutError: String?
     @State private var isSigningOut = false
@@ -1092,6 +1093,43 @@ struct ProfileView: View {
                                     .font(.system(size: 13))
                                     .foregroundColor(.white.opacity(0.8))
                             }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
+
+                        Text("Transcription")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.top, 8)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Toggle(
+                                "Use Mistral Transcribe 2",
+                                isOn: Binding(
+                                    get: { selectedTranscriptionBackend == .mistral },
+                                    set: { useMistral in
+                                        transcriptionBackendValue = (useMistral ? TranscriptionBackend.mistral : TranscriptionBackend.openAI).rawValue
+                                    }
+                                )
+                            )
+                            .tint(.white)
+                            .foregroundColor(.white)
+
+                            Text("Current backend: \(selectedTranscriptionBackend.title) (\(selectedTranscriptionBackend.functionName)).")
+                                .font(.system(size: 13))
+                                .foregroundColor(.white.opacity(0.8))
+
+                            Text("Applies to the next recording session.")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.7))
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 14)
@@ -1195,6 +1233,10 @@ struct ProfileView: View {
         reminderHour = normalizedTime.hour
         reminderMinute = normalizedTime.minute
         await JournalReminderManager.shared.setReminderTime(updatedDate)
+    }
+
+    private var selectedTranscriptionBackend: TranscriptionBackend {
+        TranscriptionBackend(rawValue: transcriptionBackendValue) ?? TranscriptionRuntimeSettings.defaultBackend
     }
 
     private func profileActionRow(

@@ -274,6 +274,18 @@ final class RecordingViewModel: ObservableObject {
                     // Summary generation is best-effort.
                 }
 
+                do {
+                    let memoryService = try ProfileMemoryService()
+                    let memoryResponse = try await memoryService.updateFromSession(
+                        sessionId: sessionId,
+                        transcript: trimmed,
+                        summary: generatedSummary
+                    )
+                    applyUpdatedProfile(memoryResponse.updatedProfile)
+                } catch {
+                    // Profile memory update is best-effort.
+                }
+
                 shouldDeleteDraftSession = false
                 NotificationCenter.default.post(name: .journalEntriesDidChange, object: nil)
                 return JournalEntry(
@@ -591,6 +603,17 @@ final class RecordingViewModel: ObservableObject {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    private func applyUpdatedProfile(_ updatedProfile: ProfileMemoryUpdatedProfile) {
+        let merged = updatedProfile.toProfileSettings(fallback: profile)
+        profile = merged
+
+        let defaults = UserDefaults.standard
+        defaults.set(merged.displayName, forKey: "onboardingDisplayName")
+        defaults.set(merged.tone.rawValue, forKey: "onboardingTone")
+        defaults.set(merged.proactivity.rawValue, forKey: "onboardingProactivity")
+        defaults.set(merged.avoidTopics, forKey: "onboardingAvoidTopics")
     }
 
     private func accumulateDuration() {

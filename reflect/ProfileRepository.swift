@@ -24,38 +24,16 @@ struct ProfileRepository {
     }
 
     func saveProfile(userId: UUID, profile: ProfileSettings) async throws {
-        let existing: [MeDbProfileIdRecord] = try await client
+        let payload = NewMeDbProfile(
+            userId: userId,
+            profile: profile,
+            updatedAt: Date()
+        )
+
+        try await client
             .from("me_db")
-            .select("user_id")
-            .eq("user_id", value: userId)
+            .upsert(payload, onConflict: "user_id")
             .execute()
-            .value
-
-        let now = Date()
-
-        if existing.isEmpty {
-            let newProfile = NewMeDbProfile(
-                userId: userId,
-                profile: profile,
-                updatedAt: now
-            )
-
-            try await client
-                .from("me_db")
-                .insert(newProfile)
-                .execute()
-        } else {
-            let update = UpdateMeDbProfile(
-                profile: profile,
-                updatedAt: now
-            )
-
-            try await client
-                .from("me_db")
-                .update(update)
-                .eq("user_id", value: userId)
-                .execute()
-        }
     }
 }
 
@@ -69,14 +47,6 @@ private struct MeDbProfileRecord: Codable {
     }
 }
 
-private struct MeDbProfileIdRecord: Codable {
-    let userId: UUID
-
-    enum CodingKeys: String, CodingKey {
-        case userId = "user_id"
-    }
-}
-
 private struct NewMeDbProfile: Encodable {
     let userId: UUID
     let profile: ProfileSettings
@@ -84,16 +54,6 @@ private struct NewMeDbProfile: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
-        case profile = "profile_json"
-        case updatedAt = "updated_at"
-    }
-}
-
-private struct UpdateMeDbProfile: Encodable {
-    let profile: ProfileSettings
-    let updatedAt: Date
-
-    enum CodingKeys: String, CodingKey {
         case profile = "profile_json"
         case updatedAt = "updated_at"
     }
