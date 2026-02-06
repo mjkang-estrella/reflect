@@ -7,6 +7,7 @@ protocol TranscriptionProvider: AnyObject {
     var onPartial: ((String) -> Void)? { get set }
     var onFinal: ((String) -> Void)? { get set }
     var onError: ((Error) -> Void)? { get set }
+    var recordingFileURL: URL? { get }
 
     func start() throws
     func stop()
@@ -32,6 +33,7 @@ final class OnDeviceSpeechTranscriptionProvider: NSObject, TranscriptionProvider
     var onPartial: ((String) -> Void)?
     var onFinal: ((String) -> Void)?
     var onError: ((Error) -> Void)?
+    var recordingFileURL: URL? { nil }
 
     private let audioEngine = AVAudioEngine()
     private let speechRecognizer: SFSpeechRecognizer? = SFSpeechRecognizer()

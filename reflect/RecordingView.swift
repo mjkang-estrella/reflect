@@ -12,6 +12,7 @@ struct RecordingView: View {
     @StateObject private var viewModel = RecordingViewModel()
     @State private var transcription = RecordingTranscription.sample
     @State private var showExitConfirmation = false
+    @State private var savedEntry: JournalEntry?
 
     init(backgroundOpacity: Double = 1.0, onDismiss: (() -> Void)? = nil) {
         self.backgroundOpacity = backgroundOpacity
@@ -44,6 +45,11 @@ struct RecordingView: View {
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(item: $savedEntry) { entry in
+                JournalSummaryView(entry: entry, onClose: {
+                    performDismiss()
+                })
+            }
             .alert("Discard recording?", isPresented: $showExitConfirmation) {
                 Button("Keep Recording", role: .cancel) {}
                 Button("Discard", role: .destructive) {
@@ -222,10 +228,9 @@ struct RecordingView: View {
         }
 
         Task {
-            let saved = await viewModel.saveRecording(userId: userUUID)
-            if saved {
+            if let entry = await viewModel.saveRecording(userId: userUUID) {
+                savedEntry = entry
                 viewModel.stopAndReset()
-                performDismiss()
             }
         }
     }

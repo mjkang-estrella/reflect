@@ -36,7 +36,8 @@ struct JournalRepository {
             durationSeconds: nil,
             tags: [],
             mood: nil,
-            isFavorite: false
+            isFavorite: false,
+            audioUrl: nil
         )
 
         try await client
@@ -54,13 +55,14 @@ struct JournalRepository {
         startedAt: Date,
         endedAt: Date
     ) async throws {
-        let title = makeTitle(from: transcript)
+        let title = makeTitle()
         let update = UpdateJournalSession(
             endedAt: endedAt,
             status: "completed",
             title: title,
             finalText: transcript,
-            durationSeconds: durationSeconds
+            durationSeconds: durationSeconds,
+            audioUrl: nil
         )
 
         try await client
@@ -136,7 +138,7 @@ struct JournalRepository {
         endedAt: Date
     ) async throws {
         let sessionId = UUID()
-        let title = makeTitle(from: transcript)
+        let title = makeTitle()
         let newSession = NewJournalSession(
             id: sessionId,
             userId: userId,
@@ -149,7 +151,8 @@ struct JournalRepository {
             durationSeconds: durationSeconds,
             tags: [],
             mood: nil,
-            isFavorite: false
+            isFavorite: false,
+            audioUrl: nil
         )
 
         try await client
@@ -200,16 +203,52 @@ struct JournalRepository {
         }
     }
 
-    private func makeTitle(from transcript: String) -> String? {
-        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+    func updateAudioURL(sessionId: UUID, audioUrl: String) async throws {
+        let update = UpdateJournalSessionAudio(audioUrl: audioUrl)
 
-        if let firstLine = trimmed.split(whereSeparator: \.isNewline).first {
-            let raw = String(firstLine)
-            let capped = raw.prefix(72)
-            return String(capped)
-        }
+        try await client
+            .from("journal_sessions")
+            .update(update)
+            .eq("id", value: sessionId)
+            .execute()
+    }
 
+    func updateTitle(sessionId: UUID, title: String) async throws {
+        let update = UpdateJournalSessionTitle(title: title)
+
+        try await client
+            .from("journal_sessions")
+            .update(update)
+            .eq("id", value: sessionId)
+            .execute()
+    }
+
+    func fetchSummary(sessionId: UUID) async throws -> SummaryPayload? {
+        let records: [DailySummaryRecord] = try await client
+            .from("daily_summaries")
+            .select()
+            .eq("session_id", value: sessionId)
+            .limit(1)
+            .execute()
+            .value
+
+        return records.first?.summaryJson
+    }
+
+    func fetchSummaries(sessionIds: [UUID]) async throws -> [UUID: SummaryPayload] {
+        guard !sessionIds.isEmpty else { return [:] }
+        let ids = sessionIds.map { $0.uuidString }.joined(separator: ",")
+        let records: [DailySummaryRecord] = try await client
+            .from("daily_summaries")
+            .select()
+            .filter("session_id", operator: "in", value: "(\(ids))")
+            .execute()
+            .value
+
+        return Dictionary(uniqueKeysWithValues: records.map { ($0.sessionId, $0.summaryJson) })
+    }
+
+    private func makeTitle() -> String? {
         return nil
     }
 
@@ -246,6 +285,7 @@ private struct UpdateJournalSession: Encodable {
     let title: String?
     let finalText: String
     let durationSeconds: Int?
+    let audioUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case endedAt = "ended_at"
@@ -253,7 +293,20 @@ private struct UpdateJournalSession: Encodable {
         case title
         case finalText = "final_text"
         case durationSeconds = "duration_seconds"
+        case audioUrl = "audio_url"
     }
+}
+
+private struct UpdateJournalSessionAudio: Encodable {
+    let audioUrl: String
+
+    enum CodingKeys: String, CodingKey {
+        case audioUrl = "audio_url"
+    }
+}
+
+private struct UpdateJournalSessionTitle: Encodable {
+    let title: String
 }
 
 private struct UpdateSessionQuestion: Encodable {

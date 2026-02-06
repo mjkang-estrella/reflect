@@ -203,14 +203,14 @@ final class RecordingViewModel: ObservableObject {
         showError = true
     }
 
-    func saveRecording(userId: UUID) async -> Bool {
+    func saveRecording(userId: UUID) async -> JournalEntry? {
         let trimmed = transcriptText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             presentError("Record something before saving.")
-            return false
+            return nil
         }
 
-        guard !isSaving else { return false }
+        guard !isSaving else { return nil }
         isSaving = true
         defer { isSaving = false }
 
@@ -232,13 +232,67 @@ final class RecordingViewModel: ObservableObject {
                     startedAt: startedAt,
                     endedAt: endedAt
                 )
+                var audioPath: String?
+                if let audioURL = provider.recordingFileURL {
+                    do {
+                        let storage = try AudioStorageService()
+                        audioPath = try await storage.uploadAudio(
+                            fileURL: audioURL,
+                            userId: userId,
+                            sessionId: sessionId
+                        )
+                        if let audioPath {
+                            try await repository.updateAudioURL(sessionId: sessionId, audioUrl: audioPath)
+                        }
+                        try? FileManager.default.removeItem(at: audioURL)
+                    } catch {
+                        audioPath = nil
+                    }
+                }
+
+                var generatedSummary: SummaryPayload?
+                var resolvedTitle: String?
+                do {
+                    let summaryService = try SummaryService()
+                    let summary = try await summaryService.generateSummary(
+                        sessionId: sessionId,
+                        transcript: trimmed,
+                        title: nil
+                    )
+                    generatedSummary = summary
+
+                    let headline = summary.headline.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !headline.isEmpty {
+                        resolvedTitle = headline
+                        do {
+                            try await repository.updateTitle(sessionId: sessionId, title: headline)
+                        } catch {
+                            // Keep save successful even if title update fails.
+                        }
+                    }
+                } catch {
+                    // Summary generation is best-effort.
+                }
+
+                shouldDeleteDraftSession = false
+                NotificationCenter.default.post(name: .journalEntriesDidChange, object: nil)
+                return JournalEntry(
+                    id: sessionId,
+                    createdAt: startedAt,
+                    title: resolvedTitle ?? "",
+                    transcription: trimmed,
+                    duration: TimeInterval(durationSeconds),
+                    tags: [],
+                    mood: nil,
+                    isFavorite: false,
+                    audioUrl: audioPath,
+                    summary: generatedSummary
+                )
             }
-            shouldDeleteDraftSession = false
-            NotificationCenter.default.post(name: .journalEntriesDidChange, object: nil)
-            return true
+            return nil
         } catch {
             presentError(error.localizedDescription)
-            return false
+            return nil
         }
     }
 
@@ -505,7 +559,6 @@ final class RecordingViewModel: ObservableObject {
             let sessions = try await repository.fetchSessions(userId: userId)
             let summaries = sessions
                 .filter { $0.status == "completed" }
-                .prefix(3)
                 .map { session in
                     RecentSessionContext(
                         title: session.title ?? "",

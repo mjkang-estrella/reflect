@@ -214,7 +214,6 @@ function buildQuestionPrompt(input: {
   const avoidTopics = (input.profile.avoidTopics ?? []).join(", ");
 
   const sessionContext = input.recentSessions
-    .slice(0, 3)
     .map((session, index) => {
       const title = session.title?.trim() ?? "";
       const snippet = session.snippet?.trim() ?? "";

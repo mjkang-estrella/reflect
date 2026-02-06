@@ -273,7 +273,7 @@ struct HomeView: View {
                     HStack(spacing: 16) {
                         ForEach(recentEntries) { entry in
                             NavigationLink {
-                                JournalEntryDetailView(entry: entry)
+                                JournalSummaryView(entry: entry, onClose: nil)
                             } label: {
                                 RecentEntryCardView(entry: entry)
                             }
@@ -449,6 +449,7 @@ final class HomeViewModel: ObservableObject {
         do {
             let repository = try JournalRepository()
             let sessions = try await repository.fetchSessions(userId: userUUID)
+            let summaries = (try? await repository.fetchSummaries(sessionIds: sessions.map(\.id))) ?? [:]
             entries = sessions.map { session in
                 JournalEntry(
                     id: session.id,
@@ -458,11 +459,16 @@ final class HomeViewModel: ObservableObject {
                     duration: TimeInterval(session.durationSeconds ?? 0),
                     tags: session.tags ?? [],
                     mood: Mood(rawValue: session.mood ?? ""),
-                    isFavorite: session.isFavorite
+                    isFavorite: session.isFavorite,
+                    audioUrl: session.audioUrl,
+                    summary: summaries[session.id]
                 )
             }
             errorMessage = nil
         } catch {
+            if error.isCancellationLike {
+                return
+            }
             errorMessage = "Unable to load entries: \(error.localizedDescription)"
         }
     }
@@ -494,6 +500,7 @@ final class HistoryViewModel: ObservableObject {
         do {
             let repository = try JournalRepository()
             let sessions = try await repository.fetchSessions(userId: userUUID)
+            let summaries = (try? await repository.fetchSummaries(sessionIds: sessions.map(\.id))) ?? [:]
             entries = sessions.map { session in
                 JournalEntry(
                     id: session.id,
@@ -503,13 +510,29 @@ final class HistoryViewModel: ObservableObject {
                     duration: TimeInterval(session.durationSeconds ?? 0),
                     tags: session.tags ?? [],
                     mood: Mood(rawValue: session.mood ?? ""),
-                    isFavorite: session.isFavorite
+                    isFavorite: session.isFavorite,
+                    audioUrl: session.audioUrl,
+                    summary: summaries[session.id]
                 )
             }
             errorMessage = nil
         } catch {
+            if error.isCancellationLike {
+                return
+            }
             errorMessage = "Unable to load entries: \(error.localizedDescription)"
         }
+    }
+}
+
+private extension Error {
+    var isCancellationLike: Bool {
+        if self is CancellationError || Task.isCancelled {
+            return true
+        }
+
+        let nsError = self as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 }
 
@@ -522,6 +545,8 @@ struct JournalEntry: Identifiable, Hashable {
     var tags: [String]
     var mood: Mood?
     var isFavorite: Bool
+    var audioUrl: String?
+    var summary: SummaryPayload?
 
     init(
         id: UUID = UUID(),
@@ -531,7 +556,9 @@ struct JournalEntry: Identifiable, Hashable {
         duration: TimeInterval,
         tags: [String],
         mood: Mood? = nil,
-        isFavorite: Bool
+        isFavorite: Bool,
+        audioUrl: String? = nil,
+        summary: SummaryPayload? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -541,6 +568,8 @@ struct JournalEntry: Identifiable, Hashable {
         self.tags = tags
         self.mood = mood
         self.isFavorite = isFavorite
+        self.audioUrl = audioUrl
+        self.summary = summary
     }
 
     static var sampleEntries: [JournalEntry] {
@@ -554,7 +583,9 @@ struct JournalEntry: Identifiable, Hashable {
                 duration: 0,
                 tags: ["Thoughts"],
                 mood: .reflective,
-                isFavorite: false
+                isFavorite: false,
+                audioUrl: nil,
+                summary: nil
             ),
             JournalEntry(
                 createdAt: calendar.date(byAdding: .day, value: -1, to: now) ?? now,
@@ -563,7 +594,9 @@ struct JournalEntry: Identifiable, Hashable {
                 duration: 112,
                 tags: ["Personal", "Mindfulness"],
                 mood: .calm,
-                isFavorite: true
+                isFavorite: true,
+                audioUrl: nil,
+                summary: nil
             ),
             JournalEntry(
                 createdAt: calendar.date(byAdding: .day, value: -2, to: now) ?? now,
@@ -572,7 +605,9 @@ struct JournalEntry: Identifiable, Hashable {
                 duration: 0,
                 tags: ["Gratitude"],
                 mood: .content,
-                isFavorite: false
+                isFavorite: false,
+                audioUrl: nil,
+                summary: nil
             ),
             JournalEntry(
                 createdAt: calendar.date(byAdding: .day, value: -3, to: now) ?? now,
@@ -581,7 +616,9 @@ struct JournalEntry: Identifiable, Hashable {
                 duration: 64,
                 tags: ["Work"],
                 mood: .focused,
-                isFavorite: false
+                isFavorite: false,
+                audioUrl: nil,
+                summary: nil
             ),
             JournalEntry(
                 createdAt: calendar.date(byAdding: .day, value: -4, to: now) ?? now,
@@ -590,7 +627,9 @@ struct JournalEntry: Identifiable, Hashable {
                 duration: 0,
                 tags: ["Friends"],
                 mood: .warm,
-                isFavorite: false
+                isFavorite: false,
+                audioUrl: nil,
+                summary: nil
             ),
             JournalEntry(
                 createdAt: calendar.date(byAdding: .day, value: -5, to: now) ?? now,
@@ -599,7 +638,9 @@ struct JournalEntry: Identifiable, Hashable {
                 duration: 90,
                 tags: ["Rest"],
                 mood: .relieved,
-                isFavorite: false
+                isFavorite: false,
+                audioUrl: nil,
+                summary: nil
             ),
         ]
     }
@@ -692,16 +733,14 @@ struct RecentEntryCardView: View {
         if !trimmedTitle.isEmpty {
             return trimmedTitle
         }
-
-        let trimmedTranscription = entry.transcription.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let firstLine = trimmedTranscription.split(whereSeparator: \.isNewline).first {
-            return String(firstLine)
-        }
-
-        return "Untitled Entry"
+        return dateText
     }
 
     private var excerptText: String {
+        if let bullet = entry.summary?.bullets.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !bullet.isEmpty {
+            return bullet
+        }
         let trimmed = entry.transcription.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "No transcription yet." }
 
@@ -728,24 +767,6 @@ struct RecentEntryCardView: View {
         formatter.dateFormat = "dd/MM 'at' h:mm a"
         return formatter
     }()
-}
-
-struct JournalEntryDetailView: View {
-    let entry: JournalEntry
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Entry Details")
-                .font(.title2)
-            Text(entry.title.isEmpty ? "Untitled Entry" : entry.title)
-                .font(.headline)
-            Text("Placeholder screen")
-                .foregroundColor(.secondary)
-        }
-        .padding()
-        .navigationTitle("Entry")
-        .navigationBarTitleDisplayMode(.inline)
-    }
 }
 
 struct TextEntrySheetView: View {
@@ -895,7 +916,7 @@ struct HistoryView: View {
                 LazyVGrid(columns: gridColumns, spacing: 16) {
                     ForEach(filteredEntries) { entry in
                         NavigationLink {
-                            JournalEntryDetailView(entry: entry)
+                            JournalSummaryView(entry: entry, onClose: nil)
                         } label: {
                             RecentEntryCardView(entry: entry, width: nil)
                         }
@@ -982,9 +1003,17 @@ struct InsightsView: View {
 
 struct ProfileView: View {
     @AppStorage("selectedGradientTheme") private var selectedTheme = AppGradientTheme.dusk.rawValue
+    @AppStorage(JournalReminderConfiguration.enabledKey) private var reminderEnabled = false
+    @AppStorage(JournalReminderConfiguration.hourKey) private var reminderHour = JournalReminderConfiguration.defaultHour
+    @AppStorage(JournalReminderConfiguration.minuteKey) private var reminderMinute = JournalReminderConfiguration.defaultMinute
     @EnvironmentObject private var authStore: AuthStore
     @State private var signOutError: String?
     @State private var isSigningOut = false
+    @State private var reminderTime = JournalReminderConfiguration.reminderDate(
+        hour: JournalReminderConfiguration.defaultHour,
+        minute: JournalReminderConfiguration.defaultMinute
+    )
+    @State private var reminderErrorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -1019,6 +1048,61 @@ struct ProfileView: View {
                                 .buttonStyle(.plain)
                             }
                         }
+
+                        Text("Reminders")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.top, 8)
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            Toggle(
+                                "Daily journal reminder",
+                                isOn: Binding(
+                                    get: { reminderEnabled },
+                                    set: { isEnabled in
+                                        Task {
+                                            await handleReminderToggleChange(isEnabled)
+                                        }
+                                    }
+                                )
+                            )
+                            .tint(.white)
+                            .foregroundColor(.white)
+
+                            if reminderEnabled {
+                                DatePicker(
+                                    "Reminder time",
+                                    selection: Binding(
+                                        get: { reminderTime },
+                                        set: { updatedDate in
+                                            reminderTime = updatedDate
+                                            Task {
+                                                await handleReminderTimeChange(updatedDate)
+                                            }
+                                        }
+                                    ),
+                                    displayedComponents: [.hourAndMinute]
+                                )
+                                .foregroundColor(.white)
+                                .tint(.white)
+                            }
+
+                            if let reminderErrorMessage {
+                                Text(reminderErrorMessage)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.white.opacity(0.8))
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
 
                         Text("Account")
                             .font(.system(size: 20, weight: .semibold))
@@ -1062,6 +1146,13 @@ struct ProfileView: View {
             }
             .navigationTitle("Profile")
         }
+        .task {
+            reminderTime = JournalReminderConfiguration.reminderDate(
+                hour: reminderHour,
+                minute: reminderMinute
+            )
+            await JournalReminderManager.shared.syncScheduledReminderWithStoredPreferences()
+        }
         .alert(
             "Sign Out Failed",
             isPresented: Binding(
@@ -1089,6 +1180,21 @@ struct ProfileView: View {
             }
             isSigningOut = false
         }
+    }
+
+    private func handleReminderToggleChange(_ isEnabled: Bool) async {
+        let didEnable = await JournalReminderManager.shared.setReminderEnabled(isEnabled, at: reminderTime)
+        reminderEnabled = didEnable && isEnabled
+        reminderErrorMessage = (isEnabled && !didEnable)
+            ? "Notifications are currently disabled for Reflect in iOS Settings."
+            : nil
+    }
+
+    private func handleReminderTimeChange(_ updatedDate: Date) async {
+        let normalizedTime = JournalReminderConfiguration.normalizedHourMinute(from: updatedDate)
+        reminderHour = normalizedTime.hour
+        reminderMinute = normalizedTime.minute
+        await JournalReminderManager.shared.setReminderTime(updatedDate)
     }
 
     private func profileActionRow(

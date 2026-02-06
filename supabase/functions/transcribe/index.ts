@@ -1,6 +1,13 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
+const maxAudioBytes = Number(Deno.env.get("TRANSCRIBE_MAX_AUDIO_BYTES") ?? `${10 * 1024 * 1024}`);
+
+function estimateDecodedBytes(base64: string): number {
+  const cleaned = base64.replace(/\s/g, "");
+  const padding = cleaned.endsWith("==") ? 2 : cleaned.endsWith("=") ? 1 : 0;
+  return Math.floor((cleaned.length * 3) / 4) - padding;
+}
 
 serve(async (req) => {
   if (req.method !== "POST") {
@@ -23,11 +30,28 @@ serve(async (req) => {
       );
     }
 
+    const estimatedBytes = estimateDecodedBytes(audioBase64);
+    if (!Number.isFinite(estimatedBytes) || estimatedBytes <= 0) {
+      return new Response(
+        JSON.stringify({ error: "Invalid audioBase64 payload." }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    if (estimatedBytes > maxAudioBytes) {
+      return new Response(
+        JSON.stringify({
+          error: `Audio payload too large (${estimatedBytes} bytes). Max allowed is ${maxAudioBytes} bytes.`,
+        }),
+        { status: 413, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
     const bytes = Uint8Array.from(atob(audioBase64), (char) =>
       char.charCodeAt(0)
     );
     const file = new File([bytes], fileName ?? "recording.m4a", {
-      type: mimeType ?? "audio/mp4",
+      type: mimeType ?? "audio/m4a",
     });
 
     const form = new FormData();

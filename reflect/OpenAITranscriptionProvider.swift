@@ -7,11 +7,13 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
     var onPartial: ((String) -> Void)?
     var onFinal: ((String) -> Void)?
     var onError: ((Error) -> Void)?
+    var recordingFileURL: URL? { recordingURL }
 
     private let supabase: SupabaseClient?
     private let functionName = "transcribe"
     private let transcriptionInterval: TimeInterval = 2.2
     private let minimumAudioBytes = 2_000
+    private let maxTranscriptionAudioBytes = 8 * 1024 * 1024
     private let promptLimit = 2_000
     private let recordingMimeType = "audio/wav"
     private let recordingFileName = "recording.wav"
@@ -20,7 +22,7 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
     private var recordingURL: URL?
     private var transcriptionTimer: DispatchSourceTimer?
     private var isTranscribing = false
-    private var lastTranscribedSize: Int = 0
+    private var hasEmittedSizeLimitError = false
     private var lastTranscript: String = ""
     private var committedTranscript: String = ""
     private var currentSegmentTranscript: String = ""
@@ -52,9 +54,9 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
             let url = makeRecordingURL()
             recordingURL = url
             audioRecorder = try createRecorder(at: url)
-            lastTranscribedSize = 0
             currentSegmentTranscript = ""
             shouldStartNewSegment = false
+            hasEmittedSizeLimitError = false
         }
 
         if let recorder = audioRecorder, !recorder.isRecording {
@@ -105,7 +107,7 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
         }
         recordingURL = nil
         isTranscribing = false
-        lastTranscribedSize = 0
+        hasEmittedSizeLimitError = false
         lastTranscript = ""
         committedTranscript = ""
         currentSegmentTranscript = ""
@@ -121,7 +123,7 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
     private func createRecorder(at url: URL) throws -> AVAudioRecorder {
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 44_100,
+            AVSampleRateKey: 16_000,
             AVNumberOfChannelsKey: 1,
             AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsBigEndianKey: false,
@@ -160,9 +162,12 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
         guard let url = recordingURL else { return }
         guard let data = try? Data(contentsOf: url) else { return }
         guard data.count >= minimumAudioBytes else { return }
-        guard data.count != lastTranscribedSize else { return }
+        guard data.count <= maxTranscriptionAudioBytes else {
+            emitSizeLimitErrorIfNeeded()
+            return
+        }
 
-        lastTranscribedSize = data.count
+        hasEmittedSizeLimitError = false
         isTranscribing = true
 
         let request = TranscribeRequest(
@@ -188,6 +193,9 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
                     self.onPartial?(combined)
                 }
             } catch {
+                if self.shouldIgnorePartialTranscriptionError(error) {
+                    return
+                }
                 self.onError?(self.detailedError(from: error))
             }
         }
@@ -198,6 +206,14 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
         guard let url = recordingURL else { return }
         guard let data = try? Data(contentsOf: url) else { return }
         guard data.count >= minimumAudioBytes else { return }
+        guard data.count <= maxTranscriptionAudioBytes else {
+            onError?(
+                OpenAITranscriptionErrorDetail(
+                    message: "Final transcription payload too large (\(data.count) bytes). Pause and resume to start a new segment."
+                )
+            )
+            return
+        }
         guard !isTranscribing else { return }
         isTranscribing = true
         defer { isTranscribing = false }
@@ -223,15 +239,20 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
             if finalizeSegment {
                 committedTranscript = combined
                 currentSegmentTranscript = ""
-                lastTranscribedSize = 0
-                if let url = recordingURL {
-                    try? FileManager.default.removeItem(at: url)
-                }
-                recordingURL = nil
             }
         } catch {
             onError?(detailedError(from: error))
         }
+    }
+
+    private func emitSizeLimitErrorIfNeeded() {
+        guard !hasEmittedSizeLimitError else { return }
+        hasEmittedSizeLimitError = true
+        onError?(
+            OpenAITranscriptionErrorDetail(
+                message: "Transcription segment reached size limit. Pause and resume recording to start a new segment."
+            )
+        )
     }
 
     private func promptSuffix(from text: String) -> String? {
@@ -282,6 +303,13 @@ final class OpenAITranscriptionProvider: NSObject, TranscriptionProvider {
         }
 
         return OpenAITranscriptionErrorDetail(message: error.localizedDescription)
+    }
+
+    private func shouldIgnorePartialTranscriptionError(_ error: Error) -> Bool {
+        guard let functionsError = error as? FunctionsError else { return false }
+        guard case let .httpError(code, responseData) = functionsError, code == 400 else { return false }
+        let responseText = String(data: responseData, encoding: .utf8)?.lowercased() ?? ""
+        return responseText.contains("audio file might be corrupted or unsupported") || responseText.contains("\"code\":\"invalid_value\"")
     }
 }
 

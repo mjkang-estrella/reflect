@@ -23,6 +23,10 @@ struct reflectApp: App {
         }
     }()
 
+    init() {
+        JournalReminderManager.shared.configureOnLaunch()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

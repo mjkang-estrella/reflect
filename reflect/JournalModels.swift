@@ -13,6 +13,7 @@ struct JournalSessionRecord: Codable, Identifiable {
     let tags: [String]?
     let mood: String?
     let isFavorite: Bool
+    let audioUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -27,6 +28,7 @@ struct JournalSessionRecord: Codable, Identifiable {
         case tags
         case mood
         case isFavorite = "is_favorite"
+        case audioUrl = "audio_url"
     }
 }
 
@@ -43,6 +45,7 @@ struct NewJournalSession: Encodable {
     let tags: [String]
     let mood: String?
     let isFavorite: Bool
+    let audioUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -57,6 +60,7 @@ struct NewJournalSession: Encodable {
         case tags
         case mood
         case isFavorite = "is_favorite"
+        case audioUrl = "audio_url"
     }
 }
 
@@ -71,6 +75,23 @@ struct NewJournalEntry: Encodable {
         case createdAt = "created_at"
         case text
         case source
+    }
+}
+
+struct SummaryPayload: Codable, Equatable, Hashable {
+    let headline: String
+    let bullets: [String]
+}
+
+struct DailySummaryRecord: Decodable {
+    let sessionId: UUID
+    let createdAt: Date
+    let summaryJson: SummaryPayload
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case createdAt = "created_at"
+        case summaryJson = "summary_json"
     }
 }
 
