@@ -48,6 +48,32 @@ struct JournalRepository {
         return sessionId
     }
 
+    func startTextSession(userId: UUID, startedAt: Date) async throws -> UUID {
+        let sessionId = UUID()
+        let newSession = NewJournalSession(
+            id: sessionId,
+            userId: userId,
+            startedAt: startedAt,
+            endedAt: nil,
+            status: "draft",
+            mode: "text",
+            title: nil,
+            finalText: nil,
+            durationSeconds: nil,
+            tags: [],
+            mood: nil,
+            isFavorite: false,
+            audioUrl: nil
+        )
+
+        try await client
+            .from("journal_sessions")
+            .insert(newSession)
+            .execute()
+
+        return sessionId
+    }
+
     func completeVoiceSession(
         sessionId: UUID,
         transcript: String,
@@ -62,6 +88,54 @@ struct JournalRepository {
             title: title,
             finalText: transcript,
             durationSeconds: durationSeconds,
+            audioUrl: nil
+        )
+
+        try await client
+            .from("journal_sessions")
+            .update(update)
+            .eq("id", value: sessionId)
+            .execute()
+
+        let entry = NewJournalEntry(
+            sessionId: sessionId,
+            createdAt: startedAt,
+            text: transcript,
+            source: "user"
+        )
+
+        try await client
+            .from("journal_entries")
+            .insert(entry)
+            .execute()
+
+        let chunks = makeTranscriptChunks(
+            sessionId: sessionId,
+            transcript: transcript,
+            baseTime: startedAt
+        )
+
+        if !chunks.isEmpty {
+            try await client
+                .from("transcript_chunks")
+                .insert(chunks)
+                .execute()
+        }
+    }
+
+    func completeTextSession(
+        sessionId: UUID,
+        transcript: String,
+        startedAt: Date,
+        endedAt: Date
+    ) async throws {
+        let title = makeTitle()
+        let update = UpdateJournalSession(
+            endedAt: endedAt,
+            status: "completed",
+            title: title,
+            finalText: transcript,
+            durationSeconds: nil,
             audioUrl: nil
         )
 

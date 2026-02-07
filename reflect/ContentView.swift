@@ -11,6 +11,7 @@ import SwiftUI
 struct ContentView: View {
     @State private var selectedTab: AppTab = .home
     @State private var isRecordingPresented = false
+    @State private var isChatPresented = false
 
     var body: some View {
         Group {
@@ -18,6 +19,7 @@ struct ContentView: View {
                 HomeView(
                     onSeeAll: { selectedTab = .history },
                     onRecord: { isRecordingPresented = true },
+                    onChat: { isChatPresented = true },
                     onProfile: { selectedTab = .profile }
                 )
                 .tabItem {
@@ -47,6 +49,9 @@ struct ContentView: View {
         .fullScreenCover(isPresented: $isRecordingPresented) {
             RecordingModeView(isPresented: $isRecordingPresented)
         }
+        .fullScreenCover(isPresented: $isChatPresented) {
+            ChatModeView(isPresented: $isChatPresented)
+        }
     }
 }
 
@@ -60,7 +65,7 @@ enum AppTab: Hashable {
 struct HomeView: View {
     @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel = HomeViewModel()
-    @State private var activeSheet: HomeSheet?
+    @State private var showingLimitSheet = false
     @State private var selectedWeekOffset = 0
     @AppStorage("onboardingDisplayName") private var displayName = ""
 
@@ -69,6 +74,7 @@ struct HomeView: View {
 
     let onSeeAll: () -> Void
     let onRecord: () -> Void
+    let onChat: () -> Void
     let onProfile: () -> Void
 
     var body: some View {
@@ -87,29 +93,24 @@ struct HomeView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 24)
                 }
-        }
-        .toolbar(.hidden, for: .navigationBar)
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-                case .limit:
-                    LimitReachedSheet(limit: freeEntryLimit, entryCount: viewModel.entryCount)
-                case .textEntry:
-                    TextEntrySheetView()
-                }
             }
-        .refreshable {
-            await viewModel.loadEntries(userId: authStore.userId)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .journalEntriesDidChange)) { _ in
-            Task {
+            .toolbar(.hidden, for: .navigationBar)
+            .sheet(isPresented: $showingLimitSheet) {
+                LimitReachedSheet(limit: freeEntryLimit, entryCount: viewModel.entryCount)
+            }
+            .refreshable {
                 await viewModel.loadEntries(userId: authStore.userId)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .journalEntriesDidChange)) { _ in
+                Task {
+                    await viewModel.loadEntries(userId: authStore.userId)
+                }
+            }
+            .task {
+                await viewModel.loadEntries(userId: authStore.userId)
+            }
+            .animation(.easeInOut(duration: 0.2), value: viewModel.entries.count)
         }
-        .task {
-            await viewModel.loadEntries(userId: authStore.userId)
-        }
-        .animation(.easeInOut(duration: 0.2), value: viewModel.entries.count)
-    }
     }
 
     private var headerSection: some View {
@@ -312,7 +313,7 @@ struct HomeView: View {
     private func handleRecordTap() {
         HapticManager.shared.impact(.medium)
         guard canCreateEntry else {
-            activeSheet = .limit
+            showingLimitSheet = true
             return
         }
         onRecord()
@@ -321,10 +322,10 @@ struct HomeView: View {
     private func handleWriteTap() {
         HapticManager.shared.impact(.medium)
         guard canCreateEntry else {
-            activeSheet = .limit
+            showingLimitSheet = true
             return
         }
-        activeSheet = .textEntry
+        onChat()
     }
 
     private func handleProfileTap() {
@@ -406,20 +407,6 @@ struct HomeView: View {
         calendar.locale = Locale(identifier: "en_US_POSIX")
         calendar.timeZone = .current
         return calendar
-    }
-}
-
-enum HomeSheet: Identifiable {
-    case limit
-    case textEntry
-
-    var id: Int {
-        switch self {
-        case .limit:
-            return 1
-        case .textEntry:
-            return 2
-        }
     }
 }
 
@@ -767,31 +754,6 @@ struct RecentEntryCardView: View {
         formatter.dateFormat = "dd/MM 'at' h:mm a"
         return formatter
     }()
-}
-
-struct TextEntrySheetView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                Text("Text Entry")
-                    .font(.title2)
-                Text("Placeholder screen")
-                    .foregroundColor(.secondary)
-            }
-            .padding(24)
-            .navigationTitle("New Text Entry")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
 }
 
 struct LimitReachedSheet: View {
